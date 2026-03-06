@@ -99,18 +99,21 @@ static void eval_file(JSCContext *ctx, const char *path) {
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <game_dir_or_js_file> [width height] [--fullscreen]\n", argv[0]);
+        fprintf(stderr, "Usage: %s <game_dir_or_js_file> [width height] [--fullscreen] [--screenshot <frame>]\n", argv[0]);
         return 1;
     }
 
     int width = 640, height = 480;
     bool fullscreen = false;
+    int screenshot_frame = 0; // 0 = disabled
 
     // Parse arguments
     const char *input = argv[1];
     for (int i = 2; i < argc; i++) {
         if (strcmp(argv[i], "--fullscreen") == 0 || strcmp(argv[i], "-f") == 0) {
             fullscreen = true;
+        } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
+            screenshot_frame = atoi(argv[++i]);
         } else if (i == 2 && atoi(argv[i]) > 0) {
             width = atoi(argv[i]);
             if (i + 1 < argc && atoi(argv[i+1]) > 0) {
@@ -192,7 +195,9 @@ int main(int argc, char *argv[]) {
     if (onload_result) g_object_unref(onload_result);
 
     // Main loop
+    int frame = 0;
     while (g_engine.running) {
+        frame++;
         double now_ms = engine_now_ms();
 
         // Poll events
@@ -237,6 +242,24 @@ int main(int argc, char *argv[]) {
         fire_raf_callbacks(now_ms);
 
         SDL_GL_SwapWindow(g_engine.window);
+
+        if (screenshot_frame > 0 && frame == screenshot_frame) {
+            uint8_t *px = malloc(width * height * 4);
+            glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, px);
+            FILE *f = fopen("screenshot.ppm", "wb");
+            if (f) {
+                fprintf(f, "P6\n%d %d\n255\n", width, height);
+                for (int y = height-1; y >= 0; y--)
+                    for (int x = 0; x < width; x++) {
+                        int i = (y*width+x)*4;
+                        fwrite(px+i, 1, 3, f);
+                    }
+                fclose(f);
+                printf("[Engine] Screenshot saved to screenshot.ppm (frame %d)\n", frame);
+            }
+            free(px);
+            g_engine.running = false;
+        }
     }
 
     engine_shutdown();

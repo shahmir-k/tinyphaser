@@ -222,14 +222,36 @@ SoftCanvas2D.prototype.createImageData = function(w, h) {
     return { data: new Uint8ClampedArray(w * h * 4), width: w, height: h };
 };
 
+SoftCanvas2D.prototype._parseFont = function() {
+    var font = this._font || '10px sans-serif';
+    var size = 10, family = 'sans-serif', bold = false, italic = false;
+    var m = font.match(/(\d+)px/);
+    if (m) size = +m[1];
+    if (/\bbold\b/i.test(font)) bold = true;
+    if (/\bitalic\b/i.test(font)) italic = true;
+    // Extract family: everything after "Npx " (skip size and style keywords)
+    var fm = font.match(/\d+px\s+(.+)/);
+    if (fm) {
+        family = fm[1].replace(/['"]/g, '').split(',')[0].trim();
+    }
+    return { size: size, family: family, bold: bold, italic: italic };
+};
+
 SoftCanvas2D.prototype.measureText = function(text) {
-    var fontSize = 10;
-    var m = this._font.match(/(\d+)px/);
-    if (m) fontSize = +m[1];
-    var scale = Math.max(1, Math.round(fontSize / 7));
-    var width = (text ? text.length : 0) * 6 * scale;
-    var height = 7 * scale;
-    return { width: width, actualBoundingBoxAscent: height * 0.8, actualBoundingBoxDescent: height * 0.2 };
+    var f = this._parseFont();
+    if (typeof __textMeasure === 'function') {
+        var result = __textMeasure(text || '', f.family, f.size, f.bold, f.italic);
+        if (result) {
+            return {
+                width: result.width,
+                actualBoundingBoxAscent: result.ascent,
+                actualBoundingBoxDescent: result.descent
+            };
+        }
+    }
+    // Fallback: approximate
+    var width = (text ? text.length : 0) * f.size * 0.6;
+    return { width: width, actualBoundingBoxAscent: f.size * 0.8, actualBoundingBoxDescent: f.size * 0.2 };
 };
 
 // Built-in 5x7 bitmap font for basic text rendering
@@ -273,21 +295,67 @@ SoftCanvas2D.prototype.fillText = function(text, x, y, maxWidth) {
     var cw = this.canvas.width || 1;
     var ch = this.canvas.height || 1;
     var c = this._fillColor;
-    var a = Math.round(c[3] * this._globalAlpha);
-    if (a === 0) return;
+    var alpha = Math.round(c[3] * this._globalAlpha);
+    if (alpha === 0) return;
 
-    // Parse font size
-    var fontSize = 10;
-    var m = this._font.match(/(\d+)px/);
-    if (m) fontSize = +m[1];
-    var scale = Math.max(1, Math.round(fontSize / 7));
+    var f = this._parseFont();
 
-    // Adjust y for baseline
+    // Try native TTF rendering
+    if (typeof __textRender === 'function') {
+        var rendered = __textRender(text, f.family, f.size, f.bold, f.italic, c[0], c[1], c[2], alpha);
+        if (rendered && rendered.data) {
+            var src = new Uint8Array(rendered.data);
+            var rw = rendered.width;
+            var rh = rendered.height;
+            var ascent = rendered.ascent || rh;
+
+            // Adjust y for baseline
+            if (this._textBaseline === 'top') { /* y is top */ }
+            else if (this._textBaseline === 'middle') { y -= rh / 2; }
+            else { y -= ascent; } // alphabetic/bottom
+
+            // Adjust x for alignment
+            if (this._textAlign === 'center') { x -= rw / 2; }
+            else if (this._textAlign === 'right' || this._textAlign === 'end') { x -= rw; }
+
+            x = Math.round(x);
+            y = Math.round(y);
+
+            // Blit rendered text onto canvas buffer with alpha blending
+            for (var py = 0; py < rh; py++) {
+                var dy = y + py;
+                if (dy < 0 || dy >= ch) continue;
+                for (var px = 0; px < rw; px++) {
+                    var dx = x + px;
+                    if (dx < 0 || dx >= cw) continue;
+                    var si = (py * rw + px) * 4;
+                    var sa = src[si + 3];
+                    if (sa === 0) continue;
+                    var di = (dy * cw + dx) * 4;
+                    if (sa === 255) {
+                        this._buffer[di]     = src[si];
+                        this._buffer[di + 1] = src[si + 1];
+                        this._buffer[di + 2] = src[si + 2];
+                        this._buffer[di + 3] = 255;
+                    } else {
+                        var inv = 255 - sa;
+                        this._buffer[di]     = (src[si] * sa + this._buffer[di] * inv) >> 8;
+                        this._buffer[di + 1] = (src[si+1] * sa + this._buffer[di+1] * inv) >> 8;
+                        this._buffer[di + 2] = (src[si+2] * sa + this._buffer[di+2] * inv) >> 8;
+                        this._buffer[di + 3] = Math.min(255, this._buffer[di+3] + sa);
+                    }
+                }
+            }
+            return;
+        }
+    }
+
+    // Fallback: bitmap font
+    var scale = Math.max(1, Math.round(f.size / 7));
     if (this._textBaseline === 'top') { /* y is already top */ }
     else if (this._textBaseline === 'middle') { y -= (7 * scale) / 2; }
-    else { y -= 7 * scale; } // default: alphabetic/bottom
+    else { y -= 7 * scale; }
 
-    // Adjust x for alignment
     var textWidth = text.length * 6 * scale;
     if (this._textAlign === 'center') { x -= textWidth / 2; }
     else if (this._textAlign === 'right' || this._textAlign === 'end') { x -= textWidth; }
@@ -306,14 +374,14 @@ SoftCanvas2D.prototype.fillText = function(text, x, y, maxWidth) {
                 if (bits & (16 >> col)) {
                     for (var sy = 0; sy < scale; sy++) {
                         for (var sx = 0; sx < scale; sx++) {
-                            var px = ox + col * scale + sx;
-                            var py = y + row * scale + sy;
-                            if (px >= 0 && px < cw && py >= 0 && py < ch) {
-                                var idx = (py * cw + px) * 4;
+                            var bpx = ox + col * scale + sx;
+                            var bpy = y + row * scale + sy;
+                            if (bpx >= 0 && bpx < cw && bpy >= 0 && bpy < ch) {
+                                var idx = (bpy * cw + bpx) * 4;
                                 this._buffer[idx]   = c[0];
                                 this._buffer[idx+1] = c[1];
                                 this._buffer[idx+2] = c[2];
-                                this._buffer[idx+3] = a;
+                                this._buffer[idx+3] = alpha;
                             }
                         }
                     }

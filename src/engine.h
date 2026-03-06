@@ -4,6 +4,7 @@
 #include <jsc/jsc.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_mixer.h>
+#include <SDL2/SDL_ttf.h>
 #include <stdbool.h>
 
 #ifdef USE_GLES2
@@ -76,6 +77,7 @@ void register_image_shim(JSCContext *ctx);
 void register_xhr_shim(JSCContext *ctx);
 void register_events_shim(JSCContext *ctx);
 void register_audio_shim(JSCContext *ctx);
+void register_text_shim(JSCContext *ctx);
 
 // Timer processing
 void process_timers(double now_ms);

@@ -11,6 +11,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(JSC REQUIRED javascriptcoregtk-4.1)
 pkg_check_modules(SDL2 REQUIRED sdl2)
 pkg_check_modules(SDL2_MIXER REQUIRED SDL2_mixer)
+pkg_check_modules(SDL2_TTF REQUIRED SDL2_ttf)
 
 if(USE_GLES)
     pkg_check_modules(GL REQUIRED glesv2 egl)
@@ -35,6 +36,7 @@ set(SOURCES
     src/shims/xhr.c
     src/shims/events.c
     src/shims/audio.c
+    src/shims/text.c
     src/util/file_utils.c
 )
 
@@ -46,6 +48,7 @@ target_include_directories(phaserquest PRIVATE
     ${JSC_INCLUDE_DIRS}
     ${SDL2_INCLUDE_DIRS}
     ${SDL2_MIXER_INCLUDE_DIRS}
+    ${SDL2_TTF_INCLUDE_DIRS}
     ${GL_INCLUDE_DIRS}
 )
 
@@ -53,6 +56,7 @@ target_link_libraries(phaserquest
     ${JSC_LIBRARIES}
     ${SDL2_LIBRARIES}
     ${SDL2_MIXER_LIBRARIES}
+    ${SDL2_TTF_LIBRARIES}
     ${GL_LIBRARIES}
     m
 )
