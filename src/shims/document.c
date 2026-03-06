@@ -118,5 +118,7 @@ void register_document_shim(JSCContext *ctx) {
         "document.head.appendChild = function(el){ return el; };"
         "document.documentElement.clientWidth = innerWidth || 640;"
         "document.documentElement.clientHeight = innerHeight || 480;"
+        "document.documentElement.clientTop = 0;"
+        "document.documentElement.clientLeft = 0;"
         , -1);
 }

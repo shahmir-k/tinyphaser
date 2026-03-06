@@ -1066,6 +1066,7 @@ if (typeof URL === 'undefined') {
         delete __blobStore[url];
     };
     URL._nextId = 0;
+    window.webkitURL = window.URL;
 }
 
 // --- Blob ---
