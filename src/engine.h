@@ -78,6 +78,9 @@ void register_xhr_shim(JSCContext *ctx);
 void register_events_shim(JSCContext *ctx);
 void register_audio_shim(JSCContext *ctx);
 void register_text_shim(JSCContext *ctx);
+void register_websocket_shim(JSCContext *ctx);
+void register_webrtc_shim(JSCContext *ctx);
+void register_fetch_net_shim(JSCContext *ctx);
 
 // Timer processing
 void process_timers(double now_ms);

@@ -14,3 +14,5 @@ Thumbs.db
 
 # Claude
 .claude/
+third_party/libdatachannel/
+test/phaser-game/

@@ -87,6 +87,9 @@ void engine_init(int screen_w, int screen_h, const char *game_dir, bool fullscre
     register_events_shim(e->js_ctx);
     register_audio_shim(e->js_ctx);
     register_text_shim(e->js_ctx);
+    register_websocket_shim(e->js_ctx);
+    register_webrtc_shim(e->js_ctx);
+    register_fetch_net_shim(e->js_ctx);
 
     printf("[Engine] Initialized: %dx%d, GL: %s\n",
            screen_w, screen_h, glGetString(GL_RENDERER));

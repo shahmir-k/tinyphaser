@@ -12,6 +12,7 @@ pkg_check_modules(JSC REQUIRED javascriptcoregtk-4.1)
 pkg_check_modules(SDL2 REQUIRED sdl2)
 pkg_check_modules(SDL2_MIXER REQUIRED SDL2_mixer)
 pkg_check_modules(SDL2_TTF REQUIRED SDL2_ttf)
+pkg_check_modules(SOUP REQUIRED libsoup-3.0)
 
 if(USE_GLES)
     pkg_check_modules(GL REQUIRED glesv2 egl)
@@ -20,6 +21,12 @@ else()
     pkg_check_modules(GL REQUIRED gl)
     add_definitions(-DGL_GLEXT_PROTOTYPES)
 endif()
+
+# libdatachannel (pre-built static library)
+set(DATACHANNEL_DIR ${CMAKE_SOURCE_DIR}/third_party/libdatachannel)
+set(DATACHANNEL_LIB ${DATACHANNEL_DIR}/build/libdatachannel.a)
+set(JUICE_LIB ${DATACHANNEL_DIR}/build/deps/libjuice/libjuice.a)
+set(USRSCTP_LIB ${DATACHANNEL_DIR}/build/deps/usrsctp/usrsctplib/libusrsctp.a)
 
 # Source files
 set(SOURCES
@@ -37,6 +44,9 @@ set(SOURCES
     src/shims/events.c
     src/shims/audio.c
     src/shims/text.c
+    src/shims/websocket.c
+    src/shims/webrtc.c
+    src/shims/fetch_net.c
     src/util/file_utils.c
 )
 
@@ -45,23 +55,32 @@ add_executable(phaserquest ${SOURCES})
 target_include_directories(phaserquest PRIVATE
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_SOURCE_DIR}/third_party
+    ${DATACHANNEL_DIR}/include
     ${JSC_INCLUDE_DIRS}
     ${SDL2_INCLUDE_DIRS}
     ${SDL2_MIXER_INCLUDE_DIRS}
     ${SDL2_TTF_INCLUDE_DIRS}
     ${GL_INCLUDE_DIRS}
+    ${SOUP_INCLUDE_DIRS}
 )
 
 target_link_libraries(phaserquest
+    ${DATACHANNEL_LIB}
+    ${JUICE_LIB}
+    ${USRSCTP_LIB}
     ${JSC_LIBRARIES}
     ${SDL2_LIBRARIES}
     ${SDL2_MIXER_LIBRARIES}
     ${SDL2_TTF_LIBRARIES}
     ${GL_LIBRARIES}
+    ${SOUP_LIBRARIES}
+    ssl crypto
+    stdc++
     m
 )
 
 target_compile_options(phaserquest PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_compile_definitions(phaserquest PRIVATE RTC_STATIC)
 
 # Copy runtime files to build directory on every build
 add_custom_command(TARGET phaserquest POST_BUILD

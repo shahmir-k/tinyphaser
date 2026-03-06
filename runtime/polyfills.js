@@ -1049,13 +1049,77 @@ if (typeof TextEncoder === 'undefined') {
     };
 }
 
+// --- URLSearchParams ---
+if (typeof URLSearchParams === 'undefined') {
+    window.URLSearchParams = function(init) {
+        this._params = {};
+        if (typeof init === 'string') {
+            var str = init.charAt(0) === '?' ? init.slice(1) : init;
+            var pairs = str.split('&');
+            for (var i = 0; i < pairs.length; i++) {
+                var kv = pairs[i].split('=');
+                if (kv[0]) this._params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1] || '');
+            }
+        }
+    };
+    URLSearchParams.prototype.get = function(k) { return this._params.hasOwnProperty(k) ? this._params[k] : null; };
+    URLSearchParams.prototype.set = function(k, v) { this._params[k] = String(v); };
+    URLSearchParams.prototype.has = function(k) { return this._params.hasOwnProperty(k); };
+    URLSearchParams.prototype.delete = function(k) { delete this._params[k]; };
+    URLSearchParams.prototype.append = function(k, v) { this._params[k] = String(v); };
+    URLSearchParams.prototype.toString = function() {
+        var parts = [];
+        for (var k in this._params) {
+            if (this._params.hasOwnProperty(k)) parts.push(encodeURIComponent(k) + '=' + encodeURIComponent(this._params[k]));
+        }
+        return parts.join('&');
+    };
+    URLSearchParams.prototype.forEach = function(cb) {
+        for (var k in this._params) {
+            if (this._params.hasOwnProperty(k)) cb(this._params[k], k, this);
+        }
+    };
+}
+
 // --- URL ---
 var __blobStore = {};
 if (typeof URL === 'undefined') {
     window.URL = function(url, base) {
+        if (base) {
+            if (url.indexOf('://') < 0) {
+                url = base.replace(/\/[^\/]*$/, '/') + url;
+            }
+        }
         this.href = url;
-        this.pathname = url;
-        this.toString = function() { return url; };
+        // Parse URL components
+        var match = url.match(/^(https?:)\/\/([^:\/]+)(?::(\d+))?(\/[^?#]*)?(\?[^#]*)?(#.*)?$/);
+        if (match) {
+            this.protocol = match[1];
+            this.hostname = match[2];
+            this.port = match[3] || '';
+            this.host = match[2] + (match[3] ? ':' + match[3] : '');
+            this.pathname = match[4] || '/';
+            this.search = match[5] || '';
+            this.hash = match[6] || '';
+        } else {
+            this.protocol = '';
+            this.hostname = '';
+            this.port = '';
+            this.host = '';
+            this.pathname = url;
+            this.search = '';
+            this.hash = '';
+        }
+        this.origin = this.protocol + '//' + this.host;
+        this.searchParams = new URLSearchParams(this.search);
+        var self = this;
+        this.toString = function() {
+            var qs = self.searchParams.toString();
+            return self.protocol + '//' + self.host + self.pathname + (qs ? '?' + qs : '') + self.hash;
+        };
+        Object.defineProperty(this, 'href', {
+            get: function() { return self.toString(); }
+        });
     };
     URL.createObjectURL = function(blob) {
         var id = 'blob:null/' + (++URL._nextId);
