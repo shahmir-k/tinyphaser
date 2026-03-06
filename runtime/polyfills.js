@@ -1149,4 +1149,11 @@ if (typeof document !== 'undefined') {
     };
 }
 
+// --- Missing browser globals ---
+window.alert = window.alert || function(msg) { console.log('[alert] ' + msg); };
+window.confirm = window.confirm || function(msg) { console.log('[confirm] ' + msg); return true; };
+window.prompt = window.prompt || function(msg) { console.log('[prompt] ' + msg); return null; };
+window.focus = window.focus || function() {};
+window.blur = window.blur || function() {};
+
 console.log('[PhaserQuest] Polyfills loaded');

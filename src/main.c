@@ -186,6 +186,11 @@ int main(int argc, char *argv[]) {
         eval_file(g_engine.js_ctx, input);
     }
 
+    // Fire window.onload if set by game scripts
+    JSCValue *onload_result = jsc_context_evaluate(g_engine.js_ctx,
+        "if (typeof window.onload === 'function') { window.onload(); }", -1);
+    if (onload_result) g_object_unref(onload_result);
+
     // Main loop
     while (g_engine.running) {
         double now_ms = engine_now_ms();

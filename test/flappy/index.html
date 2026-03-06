@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html><head><title>Flappy Bird</title></head>
+<body>
+<script src="../phaser-example/js/phaser.min.js"></script>
+<script>
+// Flappy Bird - Phaser 3 (based on Emanuele Feronato's tutorial)
+var game;
+var gameOptions = {
+    birdGravity: 800,
+    birdSpeed: 125,
+    birdFlapPower: 300,
+    minPipeHeight: 50,
+    pipeDistance: [220, 280],
+    pipeHole: [100, 130],
+    localStorageName: 'bestFlappyScore'
+};
+
+window.onload = function() {
+    var gameConfig = {
+        type: Phaser.AUTO,
+        backgroundColor: 0x87ceeb,
+        width: 320,
+        height: 480,
+        pixelArt: true,
+        physics: {
+            default: 'arcade',
+            arcade: { gravity: { y: 0 } }
+        },
+        scene: [playGame]
+    };
+    game = new Phaser.Game(gameConfig);
+};
+
+var playGame = new Phaser.Class({
+    Extends: Phaser.Scene,
+    initialize: function playGame() {
+        Phaser.Scene.call(this, { key: 'PlayGame' });
+    },
+    preload: function() {
+        this.load.image('bird', 'img/bird.png');
+        this.load.image('pipe', 'img/pipe.png');
+    },
+    create: function() {
+        this.pipeGroup = this.physics.add.group();
+        this.pipePool = [];
+        for (var i = 0; i < 4; i++) {
+            this.pipePool.push(this.pipeGroup.create(0, 0, 'pipe'));
+            this.pipePool.push(this.pipeGroup.create(0, 0, 'pipe'));
+            this.placePipes(false);
+        }
+        this.pipeGroup.setVelocityX(-gameOptions.birdSpeed);
+        this.bird = this.physics.add.sprite(80, game.config.height / 2, 'bird');
+        this.bird.body.gravity.y = gameOptions.birdGravity;
+        this.input.on('pointerdown', this.flap, this);
+        this.input.keyboard.on('keydown-SPACE', this.flap, this);
+        this.score = 0;
+        this.topScore = localStorage.getItem(gameOptions.localStorageName) == null ? 0 : localStorage.getItem(gameOptions.localStorageName);
+        this.scoreText = this.add.text(10, 10, '');
+        this.updateScore(0);
+        console.log('Flappy Bird started! Best score: ' + this.topScore);
+    },
+    updateScore: function(inc) {
+        this.score += inc;
+        this.scoreText.setText('Score: ' + this.score + '\nBest: ' + this.topScore);
+    },
+    placePipes: function(addScore) {
+        var rightmost = this.getRightmostPipe();
+        var pipeHoleHeight = Phaser.Math.Between(gameOptions.pipeHole[0], gameOptions.pipeHole[1]);
+        var pipeHolePosition = Phaser.Math.Between(
+            gameOptions.minPipeHeight + pipeHoleHeight / 2,
+            game.config.height - gameOptions.minPipeHeight - pipeHoleHeight / 2
+        );
+        this.pipePool[0].x = rightmost + this.pipePool[0].getBounds().width +
+            Phaser.Math.Between(gameOptions.pipeDistance[0], gameOptions.pipeDistance[1]);
+        this.pipePool[0].y = pipeHolePosition - pipeHoleHeight / 2;
+        this.pipePool[0].setOrigin(0, 1);
+        this.pipePool[1].x = this.pipePool[0].x;
+        this.pipePool[1].y = pipeHolePosition + pipeHoleHeight / 2;
+        this.pipePool[1].setOrigin(0, 0);
+        this.pipePool = [];
+        if (addScore) { this.updateScore(1); }
+    },
+    flap: function() {
+        this.bird.body.velocity.y = -gameOptions.birdFlapPower;
+    },
+    getRightmostPipe: function() {
+        var rightmostPipe = 0;
+        this.pipeGroup.getChildren().forEach(function(pipe) {
+            rightmostPipe = Math.max(rightmostPipe, pipe.x);
+        });
+        return rightmostPipe;
+    },
+    update: function() {
+        this.physics.world.collide(this.bird, this.pipeGroup, function() {
+            this.die();
+        }, null, this);
+        if (this.bird.y > game.config.height || this.bird.y < 0) {
+            this.die();
+        }
+        this.pipeGroup.getChildren().forEach(function(pipe) {
+            if (pipe.getBounds().right < 0) {
+                this.pipePool.push(pipe);
+                if (this.pipePool.length == 2) {
+                    this.placePipes(true);
+                }
+            }
+        }, this);
+    },
+    die: function() {
+        localStorage.setItem(gameOptions.localStorageName, Math.max(this.score, this.topScore));
+        console.log('Died! Score: ' + this.score);
+        this.scene.start('PlayGame');
+    }
+});
+</script>
+</body>
+</html>

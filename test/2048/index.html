@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html><head><title>2048</title></head>
+<body>
+<script src="../phaser-example/js/phaser.min.js"></script>
+<script>
+// 2048 game - Phaser 3 (based on Emanuele Feronato's tutorial)
+var game;
+var gameOptions = {
+    tileSize: 200,
+    tweenSpeed: 50,
+    tileSpacing: 20
+};
+
+window.onload = function() {
+    var gameConfig = {
+        type: Phaser.AUTO,
+        width: gameOptions.tileSize * 4 + gameOptions.tileSpacing * 5,
+        height: gameOptions.tileSize * 4 + gameOptions.tileSpacing * 5,
+        backgroundColor: 0xecf0f1,
+        scene: [playGame]
+    };
+    game = new Phaser.Game(gameConfig);
+};
+
+var playGame = new Phaser.Class({
+    Extends: Phaser.Scene,
+    initialize: function playGame() {
+        Phaser.Scene.call(this, { key: 'PlayGame' });
+    },
+    preload: function() {
+        this.load.spritesheet('tiles', 'img/tiles.png', {
+            frameWidth: gameOptions.tileSize,
+            frameHeight: gameOptions.tileSize
+        });
+    },
+    create: function() {
+        this.fieldArray = [];
+        this.fieldGroup = this.add.group();
+        for (var i = 0; i < 4; i++) {
+            this.fieldArray[i] = [];
+            for (var j = 0; j < 4; j++) {
+                var two = this.add.sprite(this.tileDestination(j), this.tileDestination(i), 'tiles');
+                two.alpha = 0;
+                two.visible = false;
+                this.fieldGroup.add(two);
+                this.fieldArray[i][j] = {
+                    tileValue: 0,
+                    tileSprite: two,
+                    canUpgrade: true
+                };
+            }
+        }
+        this.input.keyboard.on('keydown', this.handleKey, this);
+        this.input.on('pointerup', this.endSwipe, this);
+        this.canMove = false;
+        this.movingTiles = 0;
+        this.addTwo();
+        this.addTwo();
+        console.log('2048 game started!');
+    },
+    endSwipe: function(e) {
+        var swipeTime = e.upTime - e.downTime;
+        var dx = e.upX - e.downX;
+        var dy = e.upY - e.downY;
+        var mag = Math.sqrt(dx * dx + dy * dy);
+        if (mag < 20 || swipeTime > 1000) return;
+        var nx = dx / mag;
+        var ny = dy / mag;
+        var children = this.fieldGroup.getChildren();
+        if (nx > 0.8) {
+            for (var i = 0; i < children.length; i++) children[i].depth = game.config.width - children[i].x;
+            this.handleMove(0, 1);
+        } else if (nx < -0.8) {
+            for (var i = 0; i < children.length; i++) children[i].depth = children[i].x;
+            this.handleMove(0, -1);
+        } else if (ny > 0.8) {
+            for (var i = 0; i < children.length; i++) children[i].depth = game.config.height - children[i].y;
+            this.handleMove(1, 0);
+        } else if (ny < -0.8) {
+            for (var i = 0; i < children.length; i++) children[i].depth = children[i].y;
+            this.handleMove(-1, 0);
+        }
+    },
+    addTwo: function() {
+        var emptyTiles = [];
+        for (var i = 0; i < 4; i++) {
+            for (var j = 0; j < 4; j++) {
+                if (this.fieldArray[i][j].tileValue == 0) {
+                    emptyTiles.push({ row: i, col: j });
+                }
+            }
+        }
+        if (emptyTiles.length === 0) return;
+        var chosenTile = emptyTiles[Phaser.Math.Between(0, emptyTiles.length - 1)];
+        this.fieldArray[chosenTile.row][chosenTile.col].tileValue = 1;
+        this.fieldArray[chosenTile.row][chosenTile.col].tileSprite.visible = true;
+        this.fieldArray[chosenTile.row][chosenTile.col].tileSprite.setFrame(0);
+        var scene = this;
+        this.tweens.add({
+            targets: [this.fieldArray[chosenTile.row][chosenTile.col].tileSprite],
+            alpha: 1,
+            duration: gameOptions.tweenSpeed,
+            onComplete: function() {
+                scene.canMove = true;
+                scene.checkGameOver();
+            }
+        });
+    },
+    handleKey: function(e) {
+        if (!this.canMove) return;
+        var children = this.fieldGroup.getChildren();
+        switch (e.code) {
+            case 'KeyA': case 'ArrowLeft':
+                for (var i = 0; i < children.length; i++) children[i].depth = children[i].x;
+                this.handleMove(0, -1);
+                break;
+            case 'KeyD': case 'ArrowRight':
+                for (var i = 0; i < children.length; i++) children[i].depth = game.config.width - children[i].x;
+                this.handleMove(0, 1);
+                break;
+            case 'KeyW': case 'ArrowUp':
+                for (var i = 0; i < children.length; i++) children[i].depth = children[i].y;
+                this.handleMove(-1, 0);
+                break;
+            case 'KeyS': case 'ArrowDown':
+                for (var i = 0; i < children.length; i++) children[i].depth = game.config.height - children[i].y;
+                this.handleMove(1, 0);
+                break;
+        }
+    },
+    handleMove: function(deltaRow, deltaCol) {
+        this.canMove = false;
+        var somethingMoved = false;
+        this.movingTiles = 0;
+        for (var i = 0; i < 4; i++) {
+            for (var j = 0; j < 4; j++) {
+                var colToWatch = deltaCol == 1 ? (3 - j) : j;
+                var rowToWatch = deltaRow == 1 ? (3 - i) : i;
+                var tileValue = this.fieldArray[rowToWatch][colToWatch].tileValue;
+                if (tileValue != 0) {
+                    var colSteps = deltaCol;
+                    var rowSteps = deltaRow;
+                    while (this.isInsideBoard(rowToWatch + rowSteps, colToWatch + colSteps) &&
+                           this.fieldArray[rowToWatch + rowSteps][colToWatch + colSteps].tileValue == 0) {
+                        colSteps += deltaCol;
+                        rowSteps += deltaRow;
+                    }
+                    if (this.isInsideBoard(rowToWatch + rowSteps, colToWatch + colSteps) &&
+                        this.fieldArray[rowToWatch + rowSteps][colToWatch + colSteps].tileValue == tileValue &&
+                        this.fieldArray[rowToWatch + rowSteps][colToWatch + colSteps].canUpgrade &&
+                        this.fieldArray[rowToWatch][colToWatch].canUpgrade) {
+                        this.fieldArray[rowToWatch + rowSteps][colToWatch + colSteps].tileValue++;
+                        this.fieldArray[rowToWatch + rowSteps][colToWatch + colSteps].canUpgrade = false;
+                        this.fieldArray[rowToWatch][colToWatch].tileValue = 0;
+                        this.moveTile(this.fieldArray[rowToWatch][colToWatch], rowToWatch + rowSteps, colToWatch + colSteps, Math.abs(rowSteps + colSteps), true);
+                        somethingMoved = true;
+                    } else {
+                        colSteps -= deltaCol;
+                        rowSteps -= deltaRow;
+                        if (colSteps != 0 || rowSteps != 0) {
+                            this.fieldArray[rowToWatch + rowSteps][colToWatch + colSteps].tileValue = tileValue;
+                            this.fieldArray[rowToWatch][colToWatch].tileValue = 0;
+                            this.moveTile(this.fieldArray[rowToWatch][colToWatch], rowToWatch + rowSteps, colToWatch + colSteps, Math.abs(rowSteps + colSteps), false);
+                            somethingMoved = true;
+                        }
+                    }
+                }
+            }
+        }
+        if (!somethingMoved) { this.canMove = true; }
+    },
+    moveTile: function(tile, row, col, distance, changeNumber) {
+        this.movingTiles++;
+        var scene = this;
+        this.tweens.add({
+            targets: [tile.tileSprite],
+            x: this.tileDestination(col),
+            y: this.tileDestination(row),
+            duration: gameOptions.tweenSpeed * distance,
+            onComplete: function() {
+                scene.movingTiles--;
+                if (changeNumber) {
+                    scene.transformTile(tile, row, col);
+                }
+                if (scene.movingTiles == 0) {
+                    scene.resetTiles();
+                    scene.addTwo();
+                }
+            }
+        });
+    },
+    transformTile: function(tile, row, col) {
+        this.movingTiles++;
+        tile.tileSprite.setFrame(this.fieldArray[row][col].tileValue - 1);
+        var scene = this;
+        this.tweens.add({
+            targets: [tile.tileSprite],
+            scaleX: 1.1,
+            scaleY: 1.1,
+            duration: gameOptions.tweenSpeed,
+            yoyo: true,
+            repeat: 1,
+            onComplete: function() {
+                scene.movingTiles--;
+                if (scene.movingTiles == 0) {
+                    scene.resetTiles();
+                    scene.addTwo();
+                }
+            }
+        });
+    },
+    resetTiles: function() {
+        for (var i = 0; i < 4; i++) {
+            for (var j = 0; j < 4; j++) {
+                this.fieldArray[i][j].canUpgrade = true;
+                this.fieldArray[i][j].tileSprite.x = this.tileDestination(j);
+                this.fieldArray[i][j].tileSprite.y = this.tileDestination(i);
+                if (this.fieldArray[i][j].tileValue > 0) {
+                    this.fieldArray[i][j].tileSprite.alpha = 1;
+                    this.fieldArray[i][j].tileSprite.visible = true;
+                    this.fieldArray[i][j].tileSprite.setFrame(this.fieldArray[i][j].tileValue - 1);
+                } else {
+                    this.fieldArray[i][j].tileSprite.alpha = 0;
+                    this.fieldArray[i][j].tileSprite.visible = false;
+                }
+            }
+        }
+    },
+    isInsideBoard: function(row, col) {
+        return row >= 0 && col >= 0 && row < 4 && col < 4;
+    },
+    tileDestination: function(pos) {
+        return pos * (gameOptions.tileSize + gameOptions.tileSpacing) + gameOptions.tileSize / 2 + gameOptions.tileSpacing;
+    },
+    checkGameOver: function() {
+        for (var i = 0; i < 4; i++) {
+            for (var j = 0; j < 4; j++) {
+                if (this.fieldArray[i][j].tileValue == 0) return;
+                if (i < 3 && this.fieldArray[i][j].tileValue == this.fieldArray[i + 1][j].tileValue) return;
+                if (j < 3 && this.fieldArray[i][j].tileValue == this.fieldArray[i][j + 1].tileValue) return;
+            }
+        }
+        console.log('Game over - no more moves!');
+    }
+});
+</script>
+</body>
+</html>
