@@ -111,6 +111,10 @@ void process_timers(double now_ms) {
         JSCValue *r = jsc_value_function_call(cb, G_TYPE_NONE);
         if (r) g_object_unref(r);
 
+        // Clear any pending JS exception so it doesn't corrupt subsequent calls
+        JSCException *exc = jsc_context_get_exception(e->js_ctx);
+        if (exc) jsc_context_clear_exception(e->js_ctx);
+
         if (e->timers[i].interval_ms == 0) {
             g_object_unref(cb);
         }
@@ -132,6 +136,11 @@ void fire_raf_callbacks(double now_ms) {
     for (int i = 0; i < count; i++) {
         JSCValue *r = jsc_value_function_call(cbs[i].callback, G_TYPE_DOUBLE, now_ms, G_TYPE_NONE);
         if (r) g_object_unref(r);
+
+        // Clear any pending JS exception
+        JSCException *exc = jsc_context_get_exception(e->js_ctx);
+        if (exc) jsc_context_clear_exception(e->js_ctx);
+
         g_object_unref(cbs[i].callback);
     }
 

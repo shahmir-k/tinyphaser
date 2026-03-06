@@ -1,6 +1,53 @@
 // PhaserQuest Runtime Polyfills
 // Provides browser APIs that JSC doesn't have natively
 
+// --- Safe callback wrappers ---
+// Wrap setTimeout/setInterval/requestAnimationFrame so JS exceptions
+// don't propagate into the C runtime (which would crash on unhandled exceptions).
+// Browsers catch these at the event loop boundary; we replicate that behavior here.
+// Store native C-level callback functions, then replace globals with safe wrappers
+var __nativeSetTimeout = setTimeout;
+var __nativeSetInterval = setInterval;
+var __nativeClearTimeout = clearTimeout;
+var __nativeClearInterval = clearInterval;
+var __nativeRAF = requestAnimationFrame;
+var __nativeCAF = cancelAnimationFrame;
+
+window.setTimeout = self.setTimeout = setTimeout = function(fn, delay) {
+    if (typeof fn !== 'function') return __nativeSetTimeout(fn, delay);
+    var args = arguments.length > 2 ? Array.prototype.slice.call(arguments, 2) : [];
+    return __nativeSetTimeout(function() {
+        try { fn.apply(null, args); } catch(e) {
+            console.error('[setTimeout]', e.message || e);
+        }
+    }, delay);
+};
+
+window.setInterval = self.setInterval = setInterval = function(fn, interval) {
+    if (typeof fn !== 'function') return __nativeSetInterval(fn, interval);
+    var args = arguments.length > 2 ? Array.prototype.slice.call(arguments, 2) : [];
+    return __nativeSetInterval(function() {
+        try { fn.apply(null, args); } catch(e) {
+            console.error('[setInterval]', e.message || e);
+            if (e.stack) console.error(e.stack);
+        }
+    }, interval);
+};
+
+window.clearTimeout = self.clearTimeout = clearTimeout = __nativeClearTimeout;
+window.clearInterval = self.clearInterval = clearInterval = __nativeClearInterval;
+
+window.requestAnimationFrame = self.requestAnimationFrame = requestAnimationFrame = function(fn) {
+    return __nativeRAF(function(timestamp) {
+        try { fn(timestamp); } catch(e) {
+            console.error('[RAF]', e.message || e);
+            if (e.stack) console.error(e.stack);
+        }
+    });
+};
+
+window.cancelAnimationFrame = self.cancelAnimationFrame = cancelAnimationFrame = __nativeCAF;
+
 // --- Software Canvas2D Context ---
 (function() {
 

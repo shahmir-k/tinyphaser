@@ -189,6 +189,36 @@ int main(int argc, char *argv[]) {
         eval_file(g_engine.js_ctx, input);
     }
 
+    // Patch Phaser compatibility issues between versions
+    JSCValue *patch_result = jsc_context_evaluate(g_engine.js_ctx,
+        "(function() {"
+        "  if (typeof Phaser === 'undefined') return;"
+        "  var A = Phaser.Physics && Phaser.Physics.Arcade;"
+        "  if (!A) return;"
+        // StaticBody: add methods that only exist on dynamic Body
+        "  var SB = A.StaticBody && A.StaticBody.prototype;"
+        "  if (SB) {"
+        "    if (!SB.setCollideWorldBounds) SB.setCollideWorldBounds = function(v) { this.collideWorldBounds = !!v; return this; };"
+        "    if (!SB.setImmovable) SB.setImmovable = function() { return this; };"
+        "    if (!SB.setAllowGravity) SB.setAllowGravity = function() { return this; };"
+        "    if (!SB.setVelocity) SB.setVelocity = function() { return this; };"
+        "    if (!SB.setVelocityX) SB.setVelocityX = function() { return this; };"
+        "    if (!SB.setVelocityY) SB.setVelocityY = function() { return this; };"
+        "    if (!SB.setBounce) SB.setBounce = function() { return this; };"
+        "    if (!SB.setBounceX) SB.setBounceX = function() { return this; };"
+        "    if (!SB.setBounceY) SB.setBounceY = function() { return this; };"
+        "    if (!SB.setAcceleration) SB.setAcceleration = function() { return this; };"
+        "    if (!SB.setDrag) SB.setDrag = function() { return this; };"
+        "    if (!SB.setFriction) SB.setFriction = function() { return this; };"
+        "    if (!SB.setMaxVelocity) SB.setMaxVelocity = function() { return this; };"
+        "    if (!SB.setGravity) SB.setGravity = function() { return this; };"
+        "    if (!SB.setGravityY) SB.setGravityY = function() { return this; };"
+        "    if (!SB.setMass) SB.setMass = function() { return this; };"
+        "  }"
+        "})();"
+        , -1);
+    if (patch_result) g_object_unref(patch_result);
+
     // Fire window.onload if set by game scripts
     JSCValue *onload_result = jsc_context_evaluate(g_engine.js_ctx,
         "if (typeof window.onload === 'function') { window.onload(); }", -1);
