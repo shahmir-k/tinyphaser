@@ -204,6 +204,24 @@ int main(int argc, char *argv[]) {
                     (flags & SDL_WINDOW_FULLSCREEN_DESKTOP) ? 0 : SDL_WINDOW_FULLSCREEN_DESKTOP);
                 continue;
             }
+            // F12 saves screenshot
+            if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_F12) {
+                uint8_t *px = malloc(width * height * 4);
+                glReadPixels(0, 0, width, height, GL_RGBA, GL_UNSIGNED_BYTE, px);
+                FILE *f = fopen("screenshot.ppm", "wb");
+                if (f) {
+                    fprintf(f, "P6\n%d %d\n255\n", width, height);
+                    for (int y = height-1; y >= 0; y--)
+                        for (int x = 0; x < width; x++) {
+                            int i = (y*width+x)*4;
+                            fwrite(px+i, 1, 3, f);
+                        }
+                    fclose(f);
+                    printf("[Engine] Screenshot saved to screenshot.ppm\n");
+                }
+                free(px);
+                continue;
+            }
             translate_sdl_event(&ev);
         }
 

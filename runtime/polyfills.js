@@ -223,12 +223,13 @@ SoftCanvas2D.prototype.createImageData = function(w, h) {
 };
 
 SoftCanvas2D.prototype.measureText = function(text) {
-    // Rough approximation: ~6px per character at 10px font
-    var size = 10;
+    var fontSize = 10;
     var m = this._font.match(/(\d+)px/);
-    if (m) size = +m[1];
-    var width = (text ? text.length : 0) * size * 0.6;
-    return { width: width, actualBoundingBoxAscent: size * 0.8, actualBoundingBoxDescent: size * 0.2 };
+    if (m) fontSize = +m[1];
+    var scale = Math.max(1, Math.round(fontSize / 7));
+    var width = (text ? text.length : 0) * 6 * scale;
+    var height = 7 * scale;
+    return { width: width, actualBoundingBoxAscent: height * 0.8, actualBoundingBoxDescent: height * 0.2 };
 };
 
 // Built-in 5x7 bitmap font for basic text rendering

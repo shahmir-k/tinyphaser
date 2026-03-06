@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html><head><title>Stress Test</title></head>
+<body>
+<script src="../phaser-example/js/phaser.min.js"></script>
+<script>
+// Stress test: sprite sheets, tweens, timers, graphics, particles, groups
+
+var BootScene = new Phaser.Class({
+    Extends: Phaser.Scene,
+    initialize: function BootScene() {
+        Phaser.Scene.call(this, { key: 'boot' });
+    },
+    preload: function() {
+        this.load.spritesheet('character', 'img/character.png', { frameWidth: 32, frameHeight: 32 });
+        this.load.image('particle', 'img/particle.png');
+        this.load.image('bullet', 'img/bullet.png');
+        this.load.image('enemy', 'img/enemy.png');
+        this.load.image('bg', 'img/bg.png');
+    },
+    create: function() {
+        console.log('Boot: assets loaded, starting game scene');
+        this.scene.start('game');
+    }
+});
+
+var GameScene = new Phaser.Class({
+    Extends: Phaser.Scene,
+    initialize: function GameScene() {
+        Phaser.Scene.call(this, { key: 'game' });
+        this.score = 0;
+        this.waveNum = 0;
+    },
+
+    create: function() {
+        // Tiled background
+        this.add.tileSprite(320, 240, 640, 480, 'bg');
+
+        // Animated character sprite
+        this.anims.create({
+            key: 'walk',
+            frames: this.anims.generateFrameNumbers('character', { start: 0, end: 3 }),
+            frameRate: 8,
+            repeat: -1
+        });
+        this.player = this.physics.add.sprite(320, 400, 'character');
+        this.player.play('walk');
+        this.player.setCollideWorldBounds(true);
+
+        // Enemy group
+        this.enemies = this.physics.add.group();
+
+        // Bullet group
+        this.bullets = this.physics.add.group();
+
+        // Graphics: draw a health bar background
+        this.healthGfx = this.add.graphics();
+        this.maxHealth = 100;
+        this.health = 100;
+        this.drawHealthBar();
+
+        // Score text
+        this.scoreText = this.add.text(16, 16, 'Score: 0', {
+            fontSize: '20px', fill: '#fff'
+        });
+
+        // Wave text (center, will tween in/out)
+        this.waveText = this.add.text(320, 240, '', {
+            fontSize: '32px', fill: '#ff0',
+        });
+        this.waveText.setOrigin(0.5);
+        this.waveText.setAlpha(0);
+
+        // Input
+        this.cursors = this.input.keyboard.createCursorKeys();
+        this.fireKey = this.input.keyboard.addKey('SPACE');
+        this.lastFire = 0;
+
+        // Timer: spawn enemy waves
+        this.time.addEvent({
+            delay: 3000,
+            callback: this.spawnWave,
+            callbackScope: this,
+            loop: true
+        });
+
+        // Overlap: bullets kill enemies
+        this.physics.add.overlap(this.bullets, this.enemies, this.bulletHitEnemy, null, this);
+
+        // Overlap: enemies hurt player
+        this.physics.add.overlap(this.player, this.enemies, this.enemyHitPlayer, null, this);
+
+        // Camera flash on start
+        this.cameras.main.flash(500, 255, 255, 255);
+
+        // Spawn first wave immediately
+        this.spawnWave();
+
+        console.log('Game scene created');
+    },
+
+    drawHealthBar: function() {
+        this.healthGfx.clear();
+        // Background
+        this.healthGfx.fillStyle(0x333333, 1);
+        this.healthGfx.fillRect(500, 10, 124, 20);
+        // Health fill
+        var pct = this.health / this.maxHealth;
+        var color = pct > 0.5 ? 0x00ff00 : (pct > 0.25 ? 0xffff00 : 0xff0000);
+        this.healthGfx.fillStyle(color, 1);
+        this.healthGfx.fillRect(502, 12, 120 * pct, 16);
+        // Border
+        this.healthGfx.lineStyle(2, 0xffffff, 1);
+        this.healthGfx.strokeRect(500, 10, 124, 20);
+    },
+
+    spawnWave: function() {
+        this.waveNum++;
+        var count = 3 + this.waveNum;
+        if (count > 12) count = 12;
+
+        // Show wave text with tween
+        this.waveText.setText('Wave ' + this.waveNum);
+        this.waveText.setAlpha(0);
+        this.tweens.add({
+            targets: this.waveText,
+            alpha: 1,
+            duration: 400,
+            yoyo: true,
+            hold: 800,
+            ease: 'Sine.easeInOut'
+        });
+
+        for (var i = 0; i < count; i++) {
+            var x = Phaser.Math.Between(50, 590);
+            var e = this.enemies.create(x, -20, 'enemy');
+            e.setVelocityY(Phaser.Math.Between(40, 80 + this.waveNum * 10));
+            // Tween: enemies wobble side to side
+            this.tweens.add({
+                targets: e,
+                x: x + Phaser.Math.Between(-60, 60),
+                duration: Phaser.Math.Between(1000, 2000),
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.easeInOut'
+            });
+        }
+        console.log('Wave ' + this.waveNum + ': spawned ' + count + ' enemies');
+    },
+
+    fireBullet: function() {
+        var now = this.time.now;
+        if (now - this.lastFire < 200) return;
+        this.lastFire = now;
+
+        var bullet = this.bullets.create(this.player.x, this.player.y - 16, 'bullet');
+        bullet.setVelocityY(-400);
+        // Auto-destroy when off screen
+        this.time.delayedCall(2000, function() {
+            if (bullet.active) bullet.destroy();
+        });
+    },
+
+    bulletHitEnemy: function(bullet, enemy) {
+        bullet.destroy();
+
+        // Tween: enemy flashes and shrinks on death
+        this.tweens.add({
+            targets: enemy,
+            scaleX: 0,
+            scaleY: 0,
+            alpha: 0,
+            duration: 200,
+            onComplete: function() { enemy.destroy(); }
+        });
+
+        this.score += 10;
+        this.scoreText.setText('Score: ' + this.score);
+
+        // Camera shake on kill
+        this.cameras.main.shake(50, 0.005);
+
+        if (this.score > 0 && this.score % 100 === 0) {
+            console.log('Score milestone: ' + this.score);
+        }
+    },
+
+    enemyHitPlayer: function(player, enemy) {
+        enemy.destroy();
+        this.health -= 10;
+        if (this.health < 0) this.health = 0;
+        this.drawHealthBar();
+
+        // Flash player red
+        player.setTint(0xff0000);
+        this.time.delayedCall(200, function() {
+            player.clearTint();
+        });
+
+        // Camera flash red on hit
+        this.cameras.main.flash(200, 255, 0, 0);
+
+        if (this.health <= 0) {
+            console.log('Game over! Final score: ' + this.score);
+            this.scene.start('gameover', { score: this.score });
+        }
+    },
+
+    update: function() {
+        var speed = 250;
+
+        if (this.cursors.left.isDown) {
+            this.player.setVelocityX(-speed);
+        } else if (this.cursors.right.isDown) {
+            this.player.setVelocityX(speed);
+        } else {
+            this.player.setVelocityX(0);
+        }
+
+        if (this.fireKey.isDown) {
+            this.fireBullet();
+        }
+
+        // Clean up off-screen enemies
+        this.enemies.getChildren().forEach(function(e) {
+            if (e.y > 500) e.destroy();
+        });
+    }
+});
+
+var GameOverScene = new Phaser.Class({
+    Extends: Phaser.Scene,
+    initialize: function GameOverScene() {
+        Phaser.Scene.call(this, { key: 'gameover' });
+    },
+    create: function(data) {
+        this.add.text(320, 180, 'GAME OVER', {
+            fontSize: '48px', fill: '#f00'
+        }).setOrigin(0.5);
+
+        this.add.text(320, 260, 'Score: ' + (data.score || 0), {
+            fontSize: '32px', fill: '#fff'
+        }).setOrigin(0.5);
+
+        this.add.text(320, 340, 'Press SPACE to restart', {
+            fontSize: '20px', fill: '#aaa'
+        }).setOrigin(0.5);
+
+        this.input.keyboard.once('keydown-SPACE', function() {
+            this.scene.start('game');
+        }, this);
+
+        console.log('Game over screen, score: ' + (data.score || 0));
+    }
+});
+
+var config = {
+    type: Phaser.WEBGL,
+    width: 640,
+    height: 480,
+    backgroundColor: '#111122',
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 0 },
+            debug: false
+        }
+    },
+    scene: [BootScene, GameScene, GameOverScene]
+};
+
+var game = new Phaser.Game(config);
+</script>
+</body>
+</html>
