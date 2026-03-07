@@ -1,5 +1,25 @@
 #include "engine.h"
 
+// Transform window coordinates to game coordinates (accounting for FBO letterboxing)
+static void window_to_game_coords(int wx, int wy, int *gx, int *gy) {
+    if (!g_engine.fbo) {
+        *gx = wx;
+        *gy = wy;
+        return;
+    }
+    // Same letterbox math as engine_blit_fbo
+    float scale_x = (float)g_engine.screen_w / g_engine.render_w;
+    float scale_y = (float)g_engine.screen_h / g_engine.render_h;
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;
+    int draw_w = (int)(g_engine.render_w * scale);
+    int draw_h = (int)(g_engine.render_h * scale);
+    int offset_x = (g_engine.screen_w - draw_w) / 2;
+    int offset_y = (g_engine.screen_h - draw_h) / 2;
+
+    *gx = (int)((wx - offset_x) * (float)g_engine.render_w / draw_w);
+    *gy = (int)((wy - offset_y) * (float)g_engine.render_h / draw_h);
+}
+
 // SDL keycode to DOM key string
 static const char *sdl_to_dom_key(SDL_Keycode key) {
     switch (key) {
@@ -223,10 +243,12 @@ static void translate_joy_hat(int value) {
 
 // --- Touch → Pointer events ---
 static void fire_touch_as_pointer(const char *type, float x, float y) {
-    // Convert normalized touch coords to screen coords
-    int px = (int)(x * g_engine.screen_w);
-    int py = (int)(y * g_engine.screen_h);
-    fire_mouse_event(type, px, py, 0);
+    // Convert normalized touch coords to window coords, then to game coords
+    int wx = (int)(x * g_engine.screen_w);
+    int wy = (int)(y * g_engine.screen_h);
+    int gx, gy;
+    window_to_game_coords(wx, wy, &gx, &gy);
+    fire_mouse_event(type, gx, gy, 0);
 }
 
 void translate_sdl_event(SDL_Event *event) {
@@ -237,22 +259,30 @@ void translate_sdl_event(SDL_Event *event) {
         case SDL_KEYUP:
             fire_key_event("keyup", &event->key);
             break;
-        case SDL_MOUSEMOTION:
-            fire_mouse_event("pointermove", event->motion.x, event->motion.y, 0);
-            fire_mouse_event("mousemove", event->motion.x, event->motion.y, 0);
+        case SDL_MOUSEMOTION: {
+            int gx, gy;
+            window_to_game_coords(event->motion.x, event->motion.y, &gx, &gy);
+            fire_mouse_event("pointermove", gx, gy, 0);
+            fire_mouse_event("mousemove", gx, gy, 0);
             break;
-        case SDL_MOUSEBUTTONDOWN:
-            fire_mouse_event("pointerdown", event->button.x, event->button.y, event->button.button - 1);
-            fire_mouse_event("mousedown", event->button.x, event->button.y, event->button.button - 1);
-            // Right-click → fire contextmenu event (Phaser prevents default on this)
+        }
+        case SDL_MOUSEBUTTONDOWN: {
+            int gx, gy;
+            window_to_game_coords(event->button.x, event->button.y, &gx, &gy);
+            fire_mouse_event("pointerdown", gx, gy, event->button.button - 1);
+            fire_mouse_event("mousedown", gx, gy, event->button.button - 1);
             if (event->button.button == 3) {
-                fire_mouse_event("contextmenu", event->button.x, event->button.y, 2);
+                fire_mouse_event("contextmenu", gx, gy, 2);
             }
             break;
-        case SDL_MOUSEBUTTONUP:
-            fire_mouse_event("pointerup", event->button.x, event->button.y, event->button.button - 1);
-            fire_mouse_event("mouseup", event->button.x, event->button.y, event->button.button - 1);
+        }
+        case SDL_MOUSEBUTTONUP: {
+            int gx, gy;
+            window_to_game_coords(event->button.x, event->button.y, &gx, &gy);
+            fire_mouse_event("pointerup", gx, gy, event->button.button - 1);
+            fire_mouse_event("mouseup", gx, gy, event->button.button - 1);
             break;
+        }
         case SDL_FINGERDOWN:
             fire_touch_as_pointer("pointerdown", event->tfinger.x, event->tfinger.y);
             fire_touch_as_pointer("mousedown", event->tfinger.x, event->tfinger.y);
