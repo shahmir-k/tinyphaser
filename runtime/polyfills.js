@@ -18,7 +18,10 @@ window.setTimeout = self.setTimeout = setTimeout = function(fn, delay) {
     var args = arguments.length > 2 ? Array.prototype.slice.call(arguments, 2) : [];
     return __nativeSetTimeout(function() {
         try { fn.apply(null, args); } catch(e) {
-            console.error('[setTimeout]', e.message || e);
+            var msg = e.message || String(e);
+            var stack = '';
+            try { stack = new Error().stack || ''; } catch(x) {}
+            console.error('[setTimeout]', msg, stack);
         }
     }, delay);
 };
@@ -1277,6 +1280,13 @@ window.HTMLCanvasElement = function() {};
 window.CanvasRenderingContext2D = window.__SoftCanvas2D;
 window.WebGLRenderingContext = function() {};
 window.WebGL2RenderingContext = function() {};
+
+// Make our GL context pass `instanceof WebGLRenderingContext` so Phaser
+// takes the WebGL1+extensions path instead of assuming WebGL2 native.
+if (typeof __canvas !== 'undefined') {
+    var _glCtx = __canvas.getContext('webgl');
+    if (_glCtx) Object.setPrototypeOf(_glCtx, WebGLRenderingContext.prototype);
+}
 window.WebGLTexture = function() {};
 window.WebGLBuffer = function() {};
 window.WebGLFramebuffer = function() {};
@@ -1591,5 +1601,59 @@ if (typeof __canvas !== 'undefined') {
 // --- HTMLCanvasElement prototype ---
 window.HTMLCanvasElement = window.HTMLCanvasElement || function() {};
 HTMLCanvasElement.prototype = HTMLCanvasElement.prototype || {};
+
+// --- queueMicrotask ---
+if (typeof queueMicrotask === 'undefined') {
+    window.queueMicrotask = function(cb) {
+        Promise.resolve().then(cb).catch(function(e) { console.error('[queueMicrotask]', e.message || e); });
+    };
+}
+
+// --- window.history ---
+if (typeof window.history === 'undefined') {
+    window.history = {
+        state: null,
+        length: 1,
+        scrollRestoration: 'auto',
+        pushState: function(state, title, url) { this.state = state; },
+        replaceState: function(state, title, url) { this.state = state; },
+        go: function() {},
+        back: function() {},
+        forward: function() {}
+    };
+}
+
+// --- window.location enhancements ---
+if (!window.location || typeof window.location !== 'object') {
+    window.location = {};
+}
+window.location.hash = window.location.hash || '';
+window.location.search = window.location.search || '';
+window.location.pathname = window.location.pathname || '/';
+window.location.hostname = window.location.hostname || 'localhost';
+window.location.port = window.location.port || '';
+window.location.host = window.location.host || 'localhost';
+window.location.origin = window.location.origin || 'file://';
+window.location.assign = window.location.assign || function() {};
+window.location.replace = window.location.replace || function() {};
+window.location.reload = window.location.reload || function() {};
+
+// --- Missing HTML element constructors ---
+var htmlElementTypes = ['HTMLOptionElement','HTMLOptGroupElement','HTMLDataListElement',
+    'HTMLFieldSetElement','HTMLLegendElement','HTMLLabelElement','HTMLOutputElement',
+    'HTMLProgressElement','HTMLMeterElement','HTMLDetailsElement','HTMLDialogElement',
+    'HTMLMenuElement','HTMLMenuItemElement','HTMLTemplateElement','HTMLSlotElement',
+    'HTMLTableElement','HTMLTableRowElement','HTMLTableCellElement','HTMLTableSectionElement',
+    'HTMLIFrameElement','HTMLEmbedElement','HTMLObjectElement','HTMLSourceElement',
+    'HTMLTrackElement','HTMLMapElement','HTMLAreaElement','HTMLPictureElement',
+    'HTMLPreElement','HTMLOListElement','HTMLUListElement','HTMLLIElement',
+    'HTMLHRElement','HTMLBRElement','HTMLParagraphElement','HTMLHeadingElement',
+    'SVGElement','SVGSVGElement'];
+htmlElementTypes.forEach(function(name) {
+    if (typeof window[name] === 'undefined') {
+        window[name] = function() {};
+        window[name].prototype = {};
+    }
+});
 
 console.log('[TinyPhaser] Polyfills loaded');

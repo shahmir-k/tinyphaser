@@ -1042,6 +1042,11 @@ void register_webgl_shim(JSCContext *ctx) {
     ADD_GL_VAL(isProgram, gl_isProgram);
     ADD_GL_VAL(isShader, gl_isShader);
 
+    // WebGL 2 VAO methods (also available as OES extension)
+    ADD_GL_VAL(createVertexArray, gl_createVertexArray);
+    ADD_GL_VOID(deleteVertexArray, gl_deleteVertexArray);
+    ADD_GL_VOID(bindVertexArray, gl_bindVertexArray);
+
     // --- WebGL Constants ---
     // Data types
     ADD_GL_CONST(BYTE, 0x1400);

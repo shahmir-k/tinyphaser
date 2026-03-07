@@ -670,25 +670,38 @@ doc.visibilityState = 'visible';
 doc.hidden = false;
 
 doc.createElement = function(tag) {
-    var id = __domCreateElement(tag);
-    var el = getNode(id);
-    // Special handling for canvas - wire up to existing canvas shim
-    if (tag.toLowerCase() === 'canvas' && typeof __createCanvas === 'function') {
+    var tagLower = tag.toLowerCase();
+    // Canvas: return the shim canvas directly (has WebGL getContext etc.)
+    if (tagLower === 'canvas' && typeof __createCanvas === 'function') {
         var canvas = __createCanvas();
-        // Copy properties from stub canvas to our DOM element
         if (canvas) {
-            el.getContext = canvas.getContext;
-            el.width = canvas.width;
-            el.height = canvas.height;
-            el.toDataURL = canvas.toDataURL || function() { return ''; };
-            el.toBlob = canvas.toBlob || function() {};
-            // Store canvas ref for WebGL shim
-            if (typeof g_engine !== 'undefined') {
-                el._isCanvas = true;
-            }
+            // Add DOM methods Angular/frameworks expect on canvas
+            canvas.nodeType = ELEMENT_NODE;
+            canvas.nodeName = 'CANVAS';
+            canvas.tagName = 'CANVAS';
+            canvas.ownerDocument = doc;
+            canvas.parentNode = null;
+            canvas.parentElement = null;
+            if (!canvas.addEventListener) canvas.addEventListener = function(){};
+            if (!canvas.removeEventListener) canvas.removeEventListener = function(){};
+            if (!canvas.dispatchEvent) canvas.dispatchEvent = function(){ return true; };
+            if (!canvas.querySelector) canvas.querySelector = function(){ return null; };
+            if (!canvas.querySelectorAll) canvas.querySelectorAll = function(){ return []; };
+            if (!canvas.matches) canvas.matches = function(){ return false; };
+            if (!canvas.closest) canvas.closest = function(){ return null; };
+            if (!canvas.hasAttribute) canvas.hasAttribute = function(){ return false; };
+            if (!canvas.remove) canvas.remove = function() {
+                if (this.parentNode) this.parentNode.removeChild(this);
+            };
+            return canvas;
         }
     }
-    return el;
+    // Audio: return the shim audio element
+    if (tagLower === 'audio' && typeof __createStubElement === 'function') {
+        return __createStubElement('audio');
+    }
+    var id = __domCreateElement(tag);
+    return getNode(id);
 };
 
 doc.createTextNode = function(text) {
