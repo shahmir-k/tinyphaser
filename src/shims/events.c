@@ -1,13 +1,13 @@
 #include "engine.h"
 
 // Transform window coordinates to game coordinates (accounting for FBO letterboxing)
+// Clamps to game bounds so clicks in black bars map to the nearest game edge.
 static void window_to_game_coords(int wx, int wy, int *gx, int *gy) {
     if (!g_engine.fbo) {
         *gx = wx;
         *gy = wy;
         return;
     }
-    // Same letterbox math as engine_blit_fbo
     float scale_x = (float)g_engine.screen_w / g_engine.render_w;
     float scale_y = (float)g_engine.screen_h / g_engine.render_h;
     float scale = (scale_x < scale_y) ? scale_x : scale_y;
@@ -16,8 +16,15 @@ static void window_to_game_coords(int wx, int wy, int *gx, int *gy) {
     int offset_x = (g_engine.screen_w - draw_w) / 2;
     int offset_y = (g_engine.screen_h - draw_h) / 2;
 
-    *gx = (int)((wx - offset_x) * (float)g_engine.render_w / draw_w);
-    *gy = (int)((wy - offset_y) * (float)g_engine.render_h / draw_h);
+    int x = (int)((wx - offset_x) * (float)g_engine.render_w / draw_w);
+    int y = (int)((wy - offset_y) * (float)g_engine.render_h / draw_h);
+    // Clamp to game bounds
+    if (x < 0) x = 0;
+    if (x >= g_engine.render_w) x = g_engine.render_w - 1;
+    if (y < 0) y = 0;
+    if (y >= g_engine.render_h) y = g_engine.render_h - 1;
+    *gx = x;
+    *gy = y;
 }
 
 // SDL keycode to DOM key string
@@ -140,16 +147,16 @@ static void fire_mouse_event(const char *type, int x, int y, int button) {
     char js[2048];
     snprintf(js, sizeof(js),
         "(function() {"
+        "  var pc = window._primaryCanvas;"
         "  var e = { type:'%s', clientX:%d, clientY:%d, pageX:%d, pageY:%d,"
-        "    offsetX:%d, offsetY:%d, button:%d, buttons:%d,"
+        "    screenX:%d, screenY:%d, offsetX:%d, offsetY:%d, movementX:0, movementY:0,"
+        "    button:%d, buttons:%d,"
         "    pointerId:1, pointerType:'mouse', isPrimary:true, width:1, height:1,"
-        "    target: (typeof _primaryCanvas !== 'undefined' ? _primaryCanvas : null),"
+        "    target: pc || null, currentTarget: pc || null,"
+        "    bubbles:true, cancelable:true, composed:true,"
         "    preventDefault:function(){}, stopPropagation:function(){}, stopImmediatePropagation:function(){} };"
-        "  if (typeof _primaryCanvas !== 'undefined' && _primaryCanvas && _primaryCanvas._listeners && _primaryCanvas._listeners['%s']) {"
-        "    _primaryCanvas._listeners['%s'].slice().forEach(function(cb){ cb(e); });"
-        "  }"
-        "  if (typeof __canvas !== 'undefined' && __canvas !== _primaryCanvas && __canvas._listeners && __canvas._listeners['%s']) {"
-        "    __canvas._listeners['%s'].slice().forEach(function(cb){ cb(e); });"
+        "  if (pc && pc._listeners && pc._listeners['%s']) {"
+        "    pc._listeners['%s'].slice().forEach(function(cb){ cb(e); });"
         "  }"
         "  if (window._eventListeners && window._eventListeners['%s']) {"
         "    window._eventListeners['%s'].slice().forEach(function(cb){ cb(e); });"
@@ -158,8 +165,8 @@ static void fire_mouse_event(const char *type, int x, int y, int button) {
         "    document._listeners['%s'].slice().forEach(function(cb){ cb(e); });"
         "  }"
         "})();",
-        type, x, y, x, y, x, y, button, button ? 1 : 0,
-        type, type, type, type, type, type, type, type);
+        type, x, y, x, y, x, y, x, y, button, button ? 1 : 0,
+        type, type, type, type, type, type);
 
     JSCValue *r = jsc_context_evaluate(ctx, js, -1);
     if (r) g_object_unref(r);
@@ -250,7 +257,6 @@ static void translate_joy_hat(int value) {
 
 // --- Touch → Pointer events ---
 static void fire_touch_as_pointer(const char *type, float x, float y) {
-    // Convert normalized touch coords to window coords, then to game coords
     int wx = (int)(x * g_engine.screen_w);
     int wy = (int)(y * g_engine.screen_h);
     int gx, gy;
@@ -267,8 +273,16 @@ void translate_sdl_event(SDL_Event *event) {
             fire_key_event("keyup", &event->key);
             break;
         case SDL_MOUSEMOTION: {
+            static bool mouse_over = false;
             int gx, gy;
             window_to_game_coords(event->motion.x, event->motion.y, &gx, &gy);
+            if (!mouse_over) {
+                fire_mouse_event("pointerover", gx, gy, 0);
+                fire_mouse_event("mouseover", gx, gy, 0);
+                fire_mouse_event("pointerenter", gx, gy, 0);
+                fire_mouse_event("mouseenter", gx, gy, 0);
+                mouse_over = true;
+            }
             fire_mouse_event("pointermove", gx, gy, 0);
             fire_mouse_event("mousemove", gx, gy, 0);
             break;
@@ -344,19 +358,22 @@ void translate_sdl_event(SDL_Event *event) {
             if (event->window.event == SDL_WINDOWEVENT_RESIZED) {
                 g_engine.screen_w = event->window.data1;
                 g_engine.screen_h = event->window.data2;
-                // Fire resize event on window
-                JSCValue *rr = jsc_context_evaluate(g_engine.js_ctx,
+                // Fire resize event on window (use SDL window size, not game resolution)
+                char resize_js[1024];
+                snprintf(resize_js, sizeof(resize_js),
                     "(function(){"
                     "  window.innerWidth = window.outerWidth = screen.width = screen.availWidth = "
-                    "    document.body.clientWidth = document.documentElement.clientWidth = __canvas.width;"
+                    "    document.body.clientWidth = document.documentElement.clientWidth = %d;"
                     "  window.innerHeight = window.outerHeight = screen.height = screen.availHeight = "
-                    "    document.body.clientHeight = document.documentElement.clientHeight = __canvas.height;"
+                    "    document.body.clientHeight = document.documentElement.clientHeight = %d;"
                     "  var e = { type: 'resize' };"
                     "  if (window.onresize) window.onresize(e);"
                     "  if (window._eventListeners && window._eventListeners['resize']) {"
                     "    window._eventListeners['resize'].forEach(function(cb){ cb(e); });"
                     "  }"
-                    "})();", -1);
+                    "})();",
+                    g_engine.screen_w, g_engine.screen_h);
+                JSCValue *rr = jsc_context_evaluate(g_engine.js_ctx, resize_js, -1);
                 if (rr) g_object_unref(rr);
             }
             if (event->window.event == SDL_WINDOWEVENT_FOCUS_GAINED) {

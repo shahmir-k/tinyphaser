@@ -343,12 +343,7 @@ int main(int argc, char *argv[]) {
                 free(px);
                 continue;
             }
-            // Handle window resize (user dragging/maximizing)
-            if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_RESIZED) {
-                g_engine.screen_w = ev.window.data1;
-                g_engine.screen_h = ev.window.data2;
-                continue;
-            }
+            // Window resize is handled by translate_sdl_event (updates screen_w/h + JS innerWidth/innerHeight)
             translate_sdl_event(&ev);
         }
 

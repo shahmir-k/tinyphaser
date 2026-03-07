@@ -683,10 +683,11 @@ window.__createCanvas = function() {
     };
 
     canvas.getBoundingClientRect = function() {
-        // Report display size (window), not internal render resolution
-        var w = innerWidth || this._width;
-        var h = innerHeight || this._height;
-        return { left:0, top:0, right:w, bottom:h, width:w, height:h, x:0, y:0 };
+        // Return canvas dimensions so Phaser's coordinate transform is identity.
+        // C-side window_to_game_coords already maps SDL coords to game coords.
+        var w = this._width || 1;
+        var h = this._height || 1;
+        return { left: 0, top: 0, right: w, bottom: h, width: w, height: h, x: 0, y: 0 };
     };
 
     canvas.addEventListener = function(type, cb, opts) {
