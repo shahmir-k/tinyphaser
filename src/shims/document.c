@@ -40,9 +40,15 @@ static JSCValue *native_getElementById(GPtrArray *args, gpointer user_data) {
 
 static JSCValue *native_querySelector(GPtrArray *args, gpointer user_data) {
     JSCContext *ctx = jsc_context_get_current();
-    if (g_engine.canvas_obj) {
-        g_object_ref(g_engine.canvas_obj);
-        return g_engine.canvas_obj;
+    if (args->len >= 1) {
+        char *selector = jsc_value_to_string(g_ptr_array_index(args, 0));
+        // Only return canvas for canvas selectors
+        bool is_canvas = (strstr(selector, "canvas") != NULL);
+        g_free(selector);
+        if (is_canvas && g_engine.canvas_obj) {
+            g_object_ref(g_engine.canvas_obj);
+            return g_engine.canvas_obj;
+        }
     }
     return jsc_value_new_null(ctx);
 }
@@ -111,11 +117,15 @@ void register_document_shim(JSCContext *ctx) {
         "document.body.insertBefore = function(el){ return el; };"
         "document.body.contains = function(){ return true; };"
         "document.body.getBoundingClientRect = function(){ return { left:0, top:0, width: innerWidth, height: innerHeight, x:0, y:0 }; };"
+        "document.body.querySelector = function(){ return null; };"
+        "document.body.querySelectorAll = function(){ return []; };"
         "document.body.addEventListener = function(){};"
         "document.body.removeEventListener = function(){};"
         "document.body.clientWidth = innerWidth || 640;"
         "document.body.clientHeight = innerHeight || 480;"
         "document.head.appendChild = function(el){ return el; };"
+        "document.head.querySelector = function(){ return null; };"
+        "document.head.querySelectorAll = function(){ return []; };"
         "document.documentElement.clientWidth = innerWidth || 640;"
         "document.documentElement.clientHeight = innerHeight || 480;"
         "document.documentElement.clientTop = 0;"

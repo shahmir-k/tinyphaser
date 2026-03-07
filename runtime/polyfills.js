@@ -729,11 +729,20 @@ window.__createStubElement = function(tag) {
     };
     el.classList = { add: function(){}, remove: function(){}, contains: function(){ return false; } };
     el.cloneNode = function() { return __createStubElement(tag); };
+    el.querySelector = function() { return null; };
+    el.querySelectorAll = function() { return []; };
+    el.getElementsByTagName = function() { return []; };
+    el.getElementsByClassName = function() { return []; };
+    el.matches = function() { return false; };
+    el.closest = function() { return null; };
+    el.hasAttribute = function() { return false; };
     el.focus = function() {};
     el.blur = function() {};
-    el.dispatchEvent = function() {};
+    el.dispatchEvent = function() { return true; };
     el.parentElement = null;
     el.parentNode = null;
+    el.ownerDocument = typeof document !== 'undefined' ? document : null;
+    el.nodeType = 1;
 
     // Audio element needs canPlayType for Phaser's device detection
     if (tag.toLowerCase() === 'audio') {

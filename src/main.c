@@ -24,6 +24,24 @@ static ScriptEntry *parse_html_scripts(const char *html_path, int *count) {
         char *tag_end = strstr(p, ">");
         if (!tag_end) break;
 
+        // Skip non-JavaScript script types (e.g. application/ld+json)
+        char *type_attr = strstr(p, "type=");
+        if (type_attr && type_attr < tag_end) {
+            char tq = type_attr[5]; // quote char
+            if (tq == '"' || tq == '\'') {
+                char *type_val = type_attr + 6;
+                // Only allow text/javascript, application/javascript, module, or no type
+                if (strncmp(type_val, "text/javascript", 15) != 0 &&
+                    strncmp(type_val, "application/javascript", 22) != 0 &&
+                    strncmp(type_val, "module", 6) != 0) {
+                    // Skip to end of this script block
+                    char *skip_end = strstr(tag_end, "</script>");
+                    p = skip_end ? skip_end + 9 : tag_end + 1;
+                    continue;
+                }
+            }
+        }
+
         char *src = strstr(p, "src=");
         if (src && src < tag_end) {
             // External script: <script src="...">
