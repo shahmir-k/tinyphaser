@@ -60,7 +60,19 @@ typedef struct {
     JSCValue *canvas_obj;
     JSCValue *webgl_ctx_obj;
     JSCValue *global_obj;
+
+    // FBO-based rendering: game renders at render_w x render_h,
+    // then blits to screen_w x screen_h SDL window
+    int render_w;   // game's internal resolution (0 = same as screen)
+    int render_h;
+    GLuint fbo;     // offscreen framebuffer (0 = direct rendering)
+    GLuint fbo_tex; // color attachment texture
+    GLuint fbo_rbo; // stencil/depth renderbuffer
 } Engine;
+
+// FBO management
+void engine_setup_fbo(int render_w, int render_h);
+void engine_blit_fbo(void);
 
 // Global engine instance
 extern Engine g_engine;

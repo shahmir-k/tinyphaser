@@ -592,6 +592,8 @@ static JSCValue *gl_createFramebuffer(GPtrArray *args, gpointer ud) {
 static void gl_bindFramebuffer(GPtrArray *args, gpointer ud) {
     GLuint fbo = 0;
     if (ARG(1) && !jsc_value_is_null(ARG(1))) fbo = ARG_INT(1);
+    // Redirect "bind to screen" (fbo=0) to our offscreen FBO if active
+    if (fbo == 0 && g_engine.fbo) fbo = g_engine.fbo;
     glBindFramebuffer(ARG_INT(0), fbo);
 }
 

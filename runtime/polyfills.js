@@ -622,7 +622,7 @@ window.__createCanvas = function() {
     };
 
     // width/height setters: when the primary WebGL canvas is resized,
-    // resize the actual SDL window + GL framebuffer to match
+    // create an FBO at the game's resolution (SDL window stays at CLI size)
     Object.defineProperty(canvas, 'width', {
         get: function() { return this._width; },
         set: function(v) {
@@ -667,7 +667,7 @@ window.__createCanvas = function() {
                     // Default to SDL window size if not yet set by the game
                     if (this._width <= 1) this._width = __canvas.width || innerWidth;
                     if (this._height <= 1) this._height = __canvas.height || innerHeight;
-                    // Resize SDL window to match canvas dimensions
+                    // Set up FBO at game resolution (SDL window stays at CLI size)
                     if (typeof __resizeWindow === 'function') {
                         __resizeWindow(this._width, this._height);
                     }
@@ -683,8 +683,10 @@ window.__createCanvas = function() {
     };
 
     canvas.getBoundingClientRect = function() {
-        return { left:0, top:0, right:this.width, bottom:this.height,
-                 width:this.width, height:this.height, x:0, y:0 };
+        // Report display size (window), not internal render resolution
+        var w = innerWidth || this._width;
+        var h = innerHeight || this._height;
+        return { left:0, top:0, right:w, bottom:h, width:w, height:h, x:0, y:0 };
     };
 
     canvas.addEventListener = function(type, cb, opts) {

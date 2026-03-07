@@ -1,35 +1,25 @@
 #include "engine.h"
 
+// Called from JS when canvas.width/height is set.
+// Sets up FBO at the game's internal resolution; SDL window stays at CLI size.
 static void native_resizeWindow(GPtrArray *args, gpointer user_data) {
     if (args->len < 2) return;
     int w = jsc_value_to_int32(g_ptr_array_index(args, 0));
     int h = jsc_value_to_int32(g_ptr_array_index(args, 1));
     if (w <= 0 || h <= 0 || w > 7680 || h > 4320) return;
-    if (w == g_engine.screen_w && h == g_engine.screen_h) return;
 
-    g_engine.screen_w = w;
-    g_engine.screen_h = h;
-    SDL_SetWindowSize(g_engine.window, w, h);
-    glViewport(0, 0, w, h);
+    int cur_rw = g_engine.render_w ? g_engine.render_w : g_engine.screen_w;
+    int cur_rh = g_engine.render_h ? g_engine.render_h : g_engine.screen_h;
+    if (w == cur_rw && h == cur_rh) return;
 
-    JSCContext *ctx = jsc_context_get_current();
+    // Set up FBO at game resolution (keeps SDL window unchanged)
+    engine_setup_fbo(w, h);
 
-    // Update __canvas.width/height
-    if (g_engine.canvas_obj) {
-        jsc_value_object_set_property(g_engine.canvas_obj, "width",
-            jsc_value_new_number(ctx, w));
-        jsc_value_object_set_property(g_engine.canvas_obj, "height",
-            jsc_value_new_number(ctx, h));
+    // Bind the FBO so subsequent GL calls render into it
+    if (g_engine.fbo) {
+        glBindFramebuffer(GL_FRAMEBUFFER, g_engine.fbo);
+        glViewport(0, 0, w, h);
     }
-
-    // Update window.innerWidth/innerHeight/screen dimensions
-    JSCValue *global = jsc_context_get_global_object(ctx);
-    jsc_value_object_set_property(global, "innerWidth", jsc_value_new_number(ctx, w));
-    jsc_value_object_set_property(global, "innerHeight", jsc_value_new_number(ctx, h));
-    jsc_value_object_set_property(global, "outerWidth", jsc_value_new_number(ctx, w));
-    jsc_value_object_set_property(global, "outerHeight", jsc_value_new_number(ctx, h));
-
-    printf("[Engine] Window resized to %dx%d\n", w, h);
 }
 
 static JSCValue *native_getContext(GPtrArray *args, gpointer user_data) {

@@ -320,7 +320,13 @@ int main(int argc, char *argv[]) {
             }
             // F12 saves screenshot
             if (ev.type == SDL_KEYDOWN && ev.key.keysym.sym == SDLK_F12) {
-                int sw = g_engine.screen_w, sh = g_engine.screen_h;
+                int sw, sh;
+                if (g_engine.fbo) {
+                    sw = g_engine.render_w; sh = g_engine.render_h;
+                    glBindFramebuffer(GL_FRAMEBUFFER, g_engine.fbo);
+                } else {
+                    sw = g_engine.screen_w; sh = g_engine.screen_h;
+                }
                 uint8_t *px = malloc(sw * sh * 4);
                 glReadPixels(0, 0, sw, sh, GL_RGBA, GL_UNSIGNED_BYTE, px);
                 FILE *f = fopen("screenshot.ppm", "wb");
@@ -337,6 +343,12 @@ int main(int argc, char *argv[]) {
                 free(px);
                 continue;
             }
+            // Handle window resize (user dragging/maximizing)
+            if (ev.type == SDL_WINDOWEVENT && ev.window.event == SDL_WINDOWEVENT_RESIZED) {
+                g_engine.screen_w = ev.window.data1;
+                g_engine.screen_h = ev.window.data2;
+                continue;
+            }
             translate_sdl_event(&ev);
         }
 
@@ -346,10 +358,17 @@ int main(int argc, char *argv[]) {
         // Fire requestAnimationFrame callbacks
         fire_raf_callbacks(now_ms);
 
-        SDL_GL_SwapWindow(g_engine.window);
-
+        // Screenshot: capture from FBO (game resolution) or screen
         if (screenshot_frame > 0 && frame == screenshot_frame) {
-            int sw = g_engine.screen_w, sh = g_engine.screen_h;
+            int sw, sh;
+            if (g_engine.fbo) {
+                sw = g_engine.render_w;
+                sh = g_engine.render_h;
+                glBindFramebuffer(GL_FRAMEBUFFER, g_engine.fbo);
+            } else {
+                sw = g_engine.screen_w;
+                sh = g_engine.screen_h;
+            }
             uint8_t *px = malloc(sw * sh * 4);
             glReadPixels(0, 0, sw, sh, GL_RGBA, GL_UNSIGNED_BYTE, px);
             FILE *f = fopen("screenshot.ppm", "wb");
@@ -366,6 +385,11 @@ int main(int argc, char *argv[]) {
             free(px);
             g_engine.running = false;
         }
+
+        // Blit FBO to screen if using offscreen rendering
+        engine_blit_fbo();
+
+        SDL_GL_SwapWindow(g_engine.window);
     }
 
     engine_shutdown();

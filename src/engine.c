@@ -39,7 +39,7 @@ void engine_init(int screen_w, int screen_h, const char *game_dir, const char *g
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 0);
     SDL_GL_SetAttribute(SDL_GL_STENCIL_SIZE, 8);
 
-    Uint32 win_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN;
+    Uint32 win_flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
     if (fullscreen) win_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 
     char title[256];
@@ -133,4 +133,100 @@ void engine_shutdown(void) {
 double engine_now_ms(void) {
     Uint64 now = SDL_GetPerformanceCounter();
     return (double)(now - g_engine.start_time) / (double)g_engine.perf_freq * 1000.0;
+}
+
+void engine_setup_fbo(int render_w, int render_h) {
+    Engine *e = &g_engine;
+
+    // Skip if same as current render size
+    if (e->render_w == render_w && e->render_h == render_h) return;
+
+    // Clean up existing FBO
+    if (e->fbo) {
+        glDeleteFramebuffers(1, &e->fbo);
+        glDeleteTextures(1, &e->fbo_tex);
+        glDeleteRenderbuffers(1, &e->fbo_rbo);
+        e->fbo = 0;
+    }
+
+    e->render_w = render_w;
+    e->render_h = render_h;
+
+    // If render size matches window size, no FBO needed
+    if (render_w == e->screen_w && render_h == e->screen_h) {
+        printf("[Engine] Render %dx%d = window size, direct rendering\n", render_w, render_h);
+        return;
+    }
+
+    // Create FBO with color texture + stencil renderbuffer
+    glGenFramebuffers(1, &e->fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, e->fbo);
+
+    glGenTextures(1, &e->fbo_tex);
+    glBindTexture(GL_TEXTURE_2D, e->fbo_tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, render_w, render_h, 0,
+                 GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0,
+                           GL_TEXTURE_2D, e->fbo_tex, 0);
+
+    glGenRenderbuffers(1, &e->fbo_rbo);
+    glBindRenderbuffer(GL_RENDERBUFFER, e->fbo_rbo);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_STENCIL_INDEX8, render_w, render_h);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT,
+                              GL_RENDERBUFFER, e->fbo_rbo);
+
+    GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
+    if (status != GL_FRAMEBUFFER_COMPLETE) {
+        fprintf(stderr, "[Engine] FBO incomplete: 0x%x\n", status);
+        glDeleteFramebuffers(1, &e->fbo);
+        glDeleteTextures(1, &e->fbo_tex);
+        glDeleteRenderbuffers(1, &e->fbo_rbo);
+        e->fbo = 0;
+        e->render_w = e->screen_w;
+        e->render_h = e->screen_h;
+        return;
+    }
+
+    printf("[Engine] FBO created: game renders at %dx%d, window is %dx%d\n",
+           render_w, render_h, e->screen_w, e->screen_h);
+}
+
+// Blit the FBO to the screen, scaling to fit with aspect ratio preserved.
+// Uses glBlitFramebuffer to avoid touching shader/texture/buffer state,
+// which would invalidate Phaser's internal GL state cache.
+void engine_blit_fbo(void) {
+    Engine *e = &g_engine;
+    if (!e->fbo) return;
+
+    // Calculate letterbox/pillarbox scaling
+    float scale_x = (float)e->screen_w / e->render_w;
+    float scale_y = (float)e->screen_h / e->render_h;
+    float scale = (scale_x < scale_y) ? scale_x : scale_y;
+    int draw_w = (int)(e->render_w * scale);
+    int draw_h = (int)(e->render_h * scale);
+    int offset_x = (e->screen_w - draw_w) / 2;
+    int offset_y = (e->screen_h - draw_h) / 2;
+
+    // Set up read from FBO, draw to screen
+    glBindFramebuffer(GL_READ_FRAMEBUFFER, e->fbo);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
+
+    // Clear screen to black (letterbox bars)
+    // Save scissor state since Phaser may cache it
+    GLboolean scissor_was_on = glIsEnabled(GL_SCISSOR_TEST);
+    if (scissor_was_on) glDisable(GL_SCISSOR_TEST);
+    glClearColor(0, 0, 0, 1);
+    glClear(GL_COLOR_BUFFER_BIT);
+    if (scissor_was_on) glEnable(GL_SCISSOR_TEST);
+
+    // Blit FBO to screen with scaling
+    glBlitFramebuffer(
+        0, 0, e->render_w, e->render_h,
+        offset_x, offset_y, offset_x + draw_w, offset_y + draw_h,
+        GL_COLOR_BUFFER_BIT, GL_LINEAR);
+
+    // Restore FBO binding for next frame (sets both READ and DRAW)
+    glBindFramebuffer(GL_FRAMEBUFFER, e->fbo);
 }
