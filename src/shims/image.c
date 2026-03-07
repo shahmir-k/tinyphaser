@@ -5,10 +5,8 @@
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
 
-#define NANOSVG_IMPLEMENTATION
-#include "nanosvg.h"
-#define NANOSVGRAST_IMPLEMENTATION
-#include "nanosvgrast.h"
+#include <librsvg/rsvg.h>
+#include <cairo.h>
 
 typedef struct {
     int width;
@@ -21,38 +19,93 @@ typedef struct {
 static GHashTable *image_table = NULL;
 static int next_image_id = 1;
 
-// Rasterize SVG data to RGBA pixels. Returns NULL on failure.
+// Rasterize SVG data to RGBA pixels using librsvg+cairo. Returns NULL on failure.
 static uint8_t *rasterize_svg(const char *data, size_t len, int *out_w, int *out_h) {
-    // nanosvgParse needs a mutable, null-terminated string
-    char *copy = malloc(len + 1);
-    memcpy(copy, data, len);
-    copy[len] = '\0';
-
-    NSVGimage *svg = nsvgParse(copy, "px", 96.0f);
-    free(copy);
-    if (!svg) return NULL;
-
-    int w = (int)ceilf(svg->width);
-    int h = (int)ceilf(svg->height);
-    if (w <= 0 || h <= 0) { nsvgDelete(svg); return NULL; }
-
-    // Scale up small SVGs (e.g., 24x24 viewBox icons) to reasonable texture size
-    float scale = 1.0f;
-    if (w < 64 || h < 64) {
-        float s = 64.0f / fminf(w, h);
-        scale = s;
-        w = (int)ceilf(svg->width * scale);
-        h = (int)ceilf(svg->height * scale);
+    GError *error = NULL;
+    GInputStream *stream = g_memory_input_stream_new_from_data(data, len, NULL);
+    RsvgHandle *handle = rsvg_handle_new_from_stream_sync(stream, NULL,
+        RSVG_HANDLE_FLAGS_NONE, NULL, &error);
+    g_object_unref(stream);
+    if (!handle) {
+        fprintf(stderr, "[Image] SVG parse failed: %s\n", error ? error->message : "unknown");
+        if (error) g_error_free(error);
+        return NULL;
     }
 
-    uint8_t *pixels = malloc(w * h * 4);
-    if (!pixels) { nsvgDelete(svg); return NULL; }
-    memset(pixels, 0, w * h * 4);
+    // Get intrinsic dimensions (explicit width/height, then viewBox fallback)
+    gdouble svg_w = 0, svg_h = 0;
+    gboolean has_w, has_h, has_vbox;
+    RsvgLength rw, rh;
+    RsvgRectangle vbox;
+    rsvg_handle_get_intrinsic_dimensions(handle, &has_w, &rw, &has_h, &rh, &has_vbox, &vbox);
+    if (has_w && has_h && rw.length > 1 && rh.length > 1) {
+        svg_w = rw.length;
+        svg_h = rh.length;
+    } else if (has_vbox && vbox.width > 0 && vbox.height > 0) {
+        svg_w = vbox.width;
+        svg_h = vbox.height;
+    }
+    // Last resort: query the ink extents
+    if (svg_w <= 0 || svg_h <= 0) {
+        RsvgRectangle ink;
+        if (rsvg_handle_get_geometry_for_element(handle, NULL, &ink, NULL, NULL))  {
+            svg_w = ink.width > 0 ? ink.width : 64;
+            svg_h = ink.height > 0 ? ink.height : 64;
+        } else {
+            svg_w = svg_h = 64;
+        }
+    }
 
-    NSVGrasterizer *rast = nsvgCreateRasterizer();
-    nsvgRasterize(rast, svg, 0, 0, scale, pixels, w, h, w * 4);
-    nsvgDeleteRasterizer(rast);
-    nsvgDelete(svg);
+    int w = (int)ceil(svg_w);
+    int h = (int)ceil(svg_h);
+    if (w <= 0 || h <= 0) { g_object_unref(handle); return NULL; }
+
+    // Scale up small SVGs to reasonable texture size
+    double scale = 1.0;
+    if (w < 64 || h < 64) {
+        scale = 64.0 / (w < h ? w : h);
+        w = (int)ceil(svg_w * scale);
+        h = (int)ceil(svg_h * scale);
+    }
+
+    // Render to cairo surface (ARGB32 = premultiplied BGRA)
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
+    cairo_t *cr = cairo_create(surface);
+
+    RsvgRectangle viewport = {0, 0, w, h};
+    rsvg_handle_render_document(handle, cr, &viewport, NULL);
+
+    cairo_destroy(cr);
+    g_object_unref(handle);
+    cairo_surface_flush(surface);
+
+    // Convert from cairo premultiplied BGRA to straight RGBA
+    uint8_t *src = cairo_image_surface_get_data(surface);
+    int stride = cairo_image_surface_get_stride(surface);
+    uint8_t *pixels = malloc(w * h * 4);
+    for (int y = 0; y < h; y++) {
+        uint8_t *row = src + y * stride;
+        for (int x = 0; x < w; x++) {
+            int si = x * 4;
+            int di = (y * w + x) * 4;
+            uint8_t b = row[si + 0];
+            uint8_t g = row[si + 1];
+            uint8_t r = row[si + 2];
+            uint8_t a = row[si + 3];
+            // Un-premultiply alpha
+            if (a > 0 && a < 255) {
+                r = (uint8_t)((r * 255 + a / 2) / a);
+                g = (uint8_t)((g * 255 + a / 2) / a);
+                b = (uint8_t)((b * 255 + a / 2) / a);
+            }
+            pixels[di + 0] = r;
+            pixels[di + 1] = g;
+            pixels[di + 2] = b;
+            pixels[di + 3] = a;
+        }
+    }
+
+    cairo_surface_destroy(surface);
 
     *out_w = w;
     *out_h = h;

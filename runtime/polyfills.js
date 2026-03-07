@@ -849,29 +849,23 @@ window.Audio = function(src) {
                             }
                         }, 0);
                     } else if (val.indexOf('data:') === 0) {
-                        // Handle data URI - decode base64 PNG to get dimensions
+                        // Handle data URI - decode base64 and load via native decoder
                         setTimeout(function() {
-                            self.complete = true;
-                            // Extract dimensions from base64 PNG header if possible
                             var b64 = val.indexOf(',');
                             if (b64 >= 0) {
                                 try {
                                     var raw = atob(val.substring(b64 + 1));
                                     var bytes = new Uint8Array(raw.length);
                                     for (var i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
-                                    // PNG: width at offset 16-19, height at 20-23 (big-endian)
-                                    if (raw.length > 24 && bytes[0] === 0x89 && bytes[1] === 0x50) {
-                                        var w = (bytes[16] << 24 | bytes[17] << 16 | bytes[18] << 8 | bytes[19]) >>> 0;
-                                        var h = (bytes[20] << 24 | bytes[21] << 16 | bytes[22] << 8 | bytes[23]) >>> 0;
-                                        self.width = w; self.height = h;
-                                        self.naturalWidth = w; self.naturalHeight = h;
-                                        // Create a simple RGBA pixel buffer
-                                        var pixelData = new Uint8Array(w * h * 4);
-                                        self._pixelData = pixelData.buffer;
-                                    }
-                                } catch(e) {}
+                                    __imageLoadBuffer(self, bytes);
+                                } catch(e) {
+                                    self.complete = true;
+                                    if (self.onerror) self.onerror({ type: 'error', target: self });
+                                }
+                            } else {
+                                self.complete = true;
+                                if (self.onerror) self.onerror({ type: 'error', target: self });
                             }
-                            if (self.onload) self.onload({ type: 'load', target: self });
                         }, 0);
                     } else {
                         setTimeout(function() { __imageLoad(self, val); }, 0);
@@ -1640,6 +1634,107 @@ if (typeof __canvas !== 'undefined') {
     __canvas.mozRequestPointerLock = __canvas.requestPointerLock;
     __canvas.webkitRequestPointerLock = __canvas.requestPointerLock;
 }
+
+// --- createImageBitmap ---
+window.createImageBitmap = function(source, sx, sy, sw, sh, opts) {
+    // Normalize arguments: createImageBitmap(source, opts?) or createImageBitmap(source, sx, sy, sw, sh, opts?)
+    if (typeof sx === 'object' && sx !== null && arguments.length <= 2) {
+        opts = sx; sx = undefined;
+    }
+
+    return new Promise(function(resolve, reject) {
+        try {
+            console.log('[createImageBitmap] source type:', source ? source.constructor?.name || source.tagName || typeof source : 'null',
+                'dims:', source?.width, 'x', source?.height,
+                'hasPixelData:', !!source?._pixelData,
+                'opts:', opts ? JSON.stringify(opts) : 'none');
+            var srcPixels, srcW, srcH;
+
+            // Image with _pixelData
+            if (source && source._pixelData) {
+                var ab = source._pixelData;
+                srcPixels = (ab instanceof ArrayBuffer) ? new Uint8Array(ab) : new Uint8Array(ab.buffer || ab);
+                srcW = source.naturalWidth || source.width || 0;
+                srcH = source.naturalHeight || source.height || 0;
+            }
+            // Canvas with 2D context
+            else if (source && source._ctx2d && source._ctx2d._buffer) {
+                srcPixels = source._ctx2d._buffer;
+                srcW = source.width || 0;
+                srcH = source.height || 0;
+            }
+            // ImageData
+            else if (source && source.data && source.width && source.height) {
+                srcPixels = source.data;
+                srcW = source.width;
+                srcH = source.height;
+            }
+            // Blob - decode via __imageLoadBuffer
+            else if (source && source._parts !== undefined) {
+                var img = new Image();
+                img.onload = function() {
+                    var bm = { width: img.width, height: img.height, _pixelData: img._pixelData, close: function(){} };
+                    resolve(bm);
+                };
+                img.onerror = function() { reject(new Error('Failed to decode image')); };
+                source.arrayBuffer().then(function(buf) {
+                    __imageLoadBuffer(img, new Uint8Array(buf));
+                });
+                return;
+            }
+
+            if (!srcPixels || srcW <= 0 || srcH <= 0) {
+                reject(new Error('Invalid image source'));
+                return;
+            }
+
+            // Apply crop if specified
+            var cx = (sx !== undefined) ? (sx | 0) : 0;
+            var cy = (sy !== undefined) ? (sy | 0) : 0;
+            var cw = (sw !== undefined) ? (sw | 0) : srcW;
+            var ch = (sh !== undefined) ? (sh | 0) : srcH;
+
+            // Apply resize if requested
+            var outW = (opts && opts.resizeWidth) ? (opts.resizeWidth | 0) : cw;
+            var outH = (opts && opts.resizeHeight) ? (opts.resizeHeight | 0) : ch;
+
+            var outPixels;
+            if (cx === 0 && cy === 0 && cw === srcW && ch === srcH && outW === srcW && outH === srcH) {
+                // No crop or resize - direct copy
+                outPixels = new Uint8Array(srcPixels.buffer ? srcPixels.buffer.slice(srcPixels.byteOffset, srcPixels.byteOffset + srcW * srcH * 4) : srcPixels.slice(0, srcW * srcH * 4));
+            } else {
+                // Crop + nearest-neighbor resize
+                outPixels = new Uint8Array(outW * outH * 4);
+                var xRatio = cw / outW;
+                var yRatio = ch / outH;
+                for (var y = 0; y < outH; y++) {
+                    var sy2 = Math.floor(cy + y * yRatio);
+                    if (sy2 < 0 || sy2 >= srcH) continue;
+                    for (var x = 0; x < outW; x++) {
+                        var sx2 = Math.floor(cx + x * xRatio);
+                        if (sx2 < 0 || sx2 >= srcW) continue;
+                        var si = (sy2 * srcW + sx2) * 4;
+                        var di = (y * outW + x) * 4;
+                        outPixels[di] = srcPixels[si];
+                        outPixels[di+1] = srcPixels[si+1];
+                        outPixels[di+2] = srcPixels[si+2];
+                        outPixels[di+3] = srcPixels[si+3];
+                    }
+                }
+            }
+
+            var bitmap = {
+                width: outW,
+                height: outH,
+                _pixelData: outPixels.buffer,
+                close: function() {}
+            };
+            resolve(bitmap);
+        } catch(e) {
+            reject(e);
+        }
+    });
+};
 
 // --- HTMLCanvasElement prototype ---
 window.HTMLCanvasElement = window.HTMLCanvasElement || function() {};

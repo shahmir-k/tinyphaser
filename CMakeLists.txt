@@ -15,6 +15,7 @@ pkg_check_modules(SDL2 REQUIRED sdl2)
 pkg_check_modules(SDL2_MIXER REQUIRED SDL2_mixer)
 pkg_check_modules(SDL2_TTF REQUIRED SDL2_ttf)
 pkg_check_modules(SOUP REQUIRED libsoup-3.0)
+pkg_check_modules(RSVG REQUIRED librsvg-2.0)
 
 if(USE_GLES)
     pkg_check_modules(GL REQUIRED glesv2 egl)
@@ -71,6 +72,7 @@ target_include_directories(tinyphaser PRIVATE
     ${SDL2_TTF_INCLUDE_DIRS}
     ${GL_INCLUDE_DIRS}
     ${SOUP_INCLUDE_DIRS}
+    ${RSVG_INCLUDE_DIRS}
 )
 
 target_link_libraries(tinyphaser
@@ -85,6 +87,7 @@ target_link_libraries(tinyphaser
     ${SDL2_TTF_LIBRARIES}
     ${GL_LIBRARIES}
     ${SOUP_LIBRARIES}
+    ${RSVG_LIBRARIES}
     ssl crypto
     stdc++
     m

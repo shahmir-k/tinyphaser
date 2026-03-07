@@ -446,6 +446,45 @@ static int gl_format_channels(int format) {
     }
 }
 
+// Extract RGBA pixel data from an Image (_pixelData) or Canvas (_ctx2d._buffer)
+// Returns pixel pointer (not owned), sets *w, *h, *size. Returns NULL on failure.
+static void *get_source_pixels(JSCValue *source, int *w, int *h, gsize *size) {
+    if (!source || !jsc_value_is_object(source)) return NULL;
+
+    JSCValue *wv = jsc_value_object_get_property(source, "width");
+    JSCValue *hv = jsc_value_object_get_property(source, "height");
+    *w = jsc_value_to_int32(wv);
+    *h = jsc_value_to_int32(hv);
+    g_object_unref(wv);
+    g_object_unref(hv);
+    if (*w <= 0 || *h <= 0) return NULL;
+
+    // Try Image._pixelData (ArrayBuffer)
+    JSCValue *pd = jsc_value_object_get_property(source, "_pixelData");
+    if (pd && jsc_value_is_array_buffer(pd)) {
+        void *pixels = jsc_value_array_buffer_get_data(pd, size);
+        g_object_unref(pd);
+        return pixels;
+    }
+    if (pd) g_object_unref(pd);
+
+    // Try Canvas._ctx2d._arrayBuffer (SoftCanvas2D backing buffer)
+    JSCValue *ctx2d = jsc_value_object_get_property(source, "_ctx2d");
+    if (ctx2d && jsc_value_is_object(ctx2d)) {
+        JSCValue *abuf = jsc_value_object_get_property(ctx2d, "_arrayBuffer");
+        if (abuf && jsc_value_is_array_buffer(abuf)) {
+            void *pixels = jsc_value_array_buffer_get_data(abuf, size);
+            g_object_unref(abuf);
+            g_object_unref(ctx2d);
+            return pixels;
+        }
+        if (abuf) g_object_unref(abuf);
+    }
+    if (ctx2d) g_object_unref(ctx2d);
+
+    return NULL;
+}
+
 static void gl_texImage2D(GPtrArray *args, gpointer ud) {
     int target = ARG_INT(0);
     int level = ARG_INT(1);
@@ -480,33 +519,21 @@ static void gl_texImage2D(GPtrArray *args, gpointer ud) {
         int type = ARG_INT(4);
         JSCValue *source = ARG(5);
 
-        if (source && jsc_value_is_object(source)) {
-            // Check if it's an Image with _pixelData
-            JSCValue *pd = jsc_value_object_get_property(source, "_pixelData");
-            JSCValue *wv = jsc_value_object_get_property(source, "width");
-            JSCValue *hv = jsc_value_object_get_property(source, "height");
-
-            if (pd && jsc_value_is_array_buffer(pd)) {
-                int w = jsc_value_to_int32(wv);
-                int h = jsc_value_to_int32(hv);
-                gsize size;
-                void *pixels = jsc_value_array_buffer_get_data(pd, &size);
-                if (gl_unpack_flip_y && pixels && w > 0 && h > 0) {
-                    int channels = gl_format_channels(format);
-                    gsize copy_size = w * h * channels;
-                    uint8_t *copy = malloc(copy_size);
-                    memcpy(copy, pixels, copy_size < size ? copy_size : size);
-                    flip_pixel_rows(copy, w, h, channels);
-                    glTexImage2D(target, level, internalformat, w, h, 0, format, type, copy);
-                    free(copy);
-                } else {
-                    glTexImage2D(target, level, internalformat, w, h, 0, format, type, pixels);
-                }
+        int w, h;
+        gsize size;
+        void *pixels = get_source_pixels(source, &w, &h, &size);
+        if (pixels) {
+            if (gl_unpack_flip_y) {
+                int channels = gl_format_channels(format);
+                gsize copy_size = w * h * channels;
+                uint8_t *copy = malloc(copy_size);
+                memcpy(copy, pixels, copy_size < size ? copy_size : size);
+                flip_pixel_rows(copy, w, h, channels);
+                glTexImage2D(target, level, internalformat, w, h, 0, format, type, copy);
+                free(copy);
+            } else {
+                glTexImage2D(target, level, internalformat, w, h, 0, format, type, pixels);
             }
-
-            if (pd) g_object_unref(pd);
-            if (wv) g_object_unref(wv);
-            if (hv) g_object_unref(hv);
         }
     }
 }
@@ -544,32 +571,21 @@ static void gl_texSubImage2D(GPtrArray *args, gpointer ud) {
         int type = ARG_INT(5);
         JSCValue *source = ARG(6);
 
-        if (source && jsc_value_is_object(source)) {
-            JSCValue *pd = jsc_value_object_get_property(source, "_pixelData");
-            JSCValue *wv = jsc_value_object_get_property(source, "width");
-            JSCValue *hv = jsc_value_object_get_property(source, "height");
-
-            if (pd && jsc_value_is_array_buffer(pd)) {
-                int w = jsc_value_to_int32(wv);
-                int h = jsc_value_to_int32(hv);
-                gsize size;
-                void *pixels = jsc_value_array_buffer_get_data(pd, &size);
-                if (gl_unpack_flip_y && pixels && w > 0 && h > 0) {
-                    int channels = gl_format_channels(format);
-                    gsize copy_size = w * h * channels;
-                    uint8_t *copy = malloc(copy_size);
-                    memcpy(copy, pixels, copy_size < size ? copy_size : size);
-                    flip_pixel_rows(copy, w, h, channels);
-                    glTexSubImage2D(target, level, xoff, yoff, w, h, format, type, copy);
-                    free(copy);
-                } else {
-                    glTexSubImage2D(target, level, xoff, yoff, w, h, format, type, pixels);
-                }
+        int w, h;
+        gsize size;
+        void *pixels = get_source_pixels(source, &w, &h, &size);
+        if (pixels) {
+            if (gl_unpack_flip_y) {
+                int channels = gl_format_channels(format);
+                gsize copy_size = w * h * channels;
+                uint8_t *copy = malloc(copy_size);
+                memcpy(copy, pixels, copy_size < size ? copy_size : size);
+                flip_pixel_rows(copy, w, h, channels);
+                glTexSubImage2D(target, level, xoff, yoff, w, h, format, type, copy);
+                free(copy);
+            } else {
+                glTexSubImage2D(target, level, xoff, yoff, w, h, format, type, pixels);
             }
-
-            if (pd) g_object_unref(pd);
-            if (wv) g_object_unref(wv);
-            if (hv) g_object_unref(hv);
         }
     }
 }
