@@ -1021,10 +1021,18 @@ extern "C" void dom_bridge_load_html(JSCContext* ctx, const char* html) {
         g_container = new TinyPhaserContainer();
     }
 
+    // CRITICAL: Create Cairo surface BEFORE parsing HTML so that
+    // create_font() gets real metrics and text_width() works during layout.
+    // Without this, text_width() returns 0 and all text overlaps.
+    int w = g_engine.render_w ? g_engine.render_w : g_engine.screen_w;
+    int h = g_engine.render_h ? g_engine.render_h : g_engine.screen_h;
+    if (w <= 0) w = 640;
+    if (h <= 0) h = 480;
+    ensure_html_surface(w, h);
+
     g_doc = document::createFromString(html, g_container);
 
     if (g_doc) {
-        int w = g_engine.render_w ? g_engine.render_w : g_engine.screen_w;
         g_doc->render(w);
         register_tree(g_doc->root());
         g_html_dirty = true;
