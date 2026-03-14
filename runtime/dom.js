@@ -573,6 +573,13 @@ DOMElement.prototype.insertAdjacentHTML = function(position, html) {
 // Canvas-specific: getContext (for Phaser)
 DOMElement.prototype.getContext = function(type) {
     if (this.tagName === 'CANVAS') {
+        if (type === '2d') {
+            // Return SoftCanvas2D for 2D context (used by Phaser for text rendering)
+            if (!this._ctx2d && typeof SoftCanvas2D === 'function') {
+                this._ctx2d = new SoftCanvas2D(this);
+            }
+            return this._ctx2d || null;
+        }
         // Delegate to existing canvas/WebGL shim
         if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
             return typeof __getWebGLContext === 'function' ? __getWebGLContext(this) : null;

@@ -470,6 +470,15 @@ static void *get_source_pixels(JSCValue *source, int *w, int *h, gsize *size) {
 
     // Try Canvas._ctx2d._arrayBuffer (SoftCanvas2D backing buffer)
     JSCValue *ctx2d = jsc_value_object_get_property(source, "_ctx2d");
+    if (!ctx2d || !jsc_value_is_object(ctx2d)) {
+        if (ctx2d) g_object_unref(ctx2d);
+        // _ctx2d not found — call getContext('2d') to trigger lazy creation
+        JSCValue *getCtx = jsc_value_object_get_property(source, "getContext");
+        if (getCtx && jsc_value_is_function(getCtx)) {
+            ctx2d = jsc_value_function_call(getCtx, G_TYPE_STRING, "2d", G_TYPE_NONE);
+        }
+        if (getCtx) g_object_unref(getCtx);
+    }
     if (ctx2d && jsc_value_is_object(ctx2d)) {
         JSCValue *abuf = jsc_value_object_get_property(ctx2d, "_arrayBuffer");
         if (abuf && jsc_value_is_array_buffer(abuf)) {
@@ -522,6 +531,9 @@ static void gl_texImage2D(GPtrArray *args, gpointer ud) {
         int w, h;
         gsize size;
         void *pixels = get_source_pixels(source, &w, &h, &size);
+        if (!pixels) {
+            fprintf(stderr, "[WebGL] texImage2D: no pixel data from source (w=%d h=%d)\n", w, h);
+        }
         if (pixels) {
             if (gl_unpack_flip_y) {
                 int channels = gl_format_channels(format);
